@@ -1,0 +1,106 @@
+{
+  "theme": "dark",
+  "archetype": "Performance Pro (Archetype 2)",
+  "design_philosophy": "Tactical Minimalism. High-visibility athletic feel for limited gym environments. Solid dark surfaces, pure white data clarity, with neon triggers (Purple & Teal). No soft shadows, rely on 1px solid strokes.",
+  "colors": {
+    "background": "#0A0A0A",
+    "surface": "#1A1A1A",
+    "surface_active": "#262626",
+    "primary": "#6F61EF",
+    "primary_foreground": "#FFFFFF",
+    "secondary": "#39D2C0",
+    "secondary_foreground": "#000000",
+    "text_primary": "#FFFFFF",
+    "text_secondary": "#A1A1AA",
+    "border": "rgba(255, 255, 255, 0.1)",
+    "success": "#39D2C0",
+    "error": "#FF3B30"
+  },
+  "typography": {
+    "heading_font": "Barlow Condensed, sans-serif",
+    "body_font": "DM Sans, sans-serif",
+    "rules": [
+      "Use tracking-tight for all headings.",
+      "Use tracking-[0.2em] uppercase for overlines and small labels.",
+      "Never center-align by default; use left-alignment for dense content."
+    ],
+    "scale": {
+      "h1": "text-5xl font-black uppercase tracking-tight",
+      "h2": "text-4xl font-extrabold uppercase tracking-tight",
+      "h3": "text-2xl font-bold tracking-tight",
+      "body": "text-base font-medium text-[#A1A1AA] leading-relaxed",
+      "label": "text-xs font-bold uppercase tracking-[0.15em] text-[#39D2C0]"
+    }
+  },
+  "spacing_and_layout": {
+    "general": "Mobile-first approach. App-store ready layout. Wrap the entire app in a mobile container: max-w-md mx-auto h-[100dvh] relative overflow-y-auto overflow-x-hidden bg-[#0A0A0A] shadow-2xl.",
+    "padding": "Use p-6 for main containers.",
+    "bottom_nav_offset": "Add pb-24 to main content to account for fixed bottom navigation.",
+    "cards": "Use p-5 for inner card padding."
+  },
+  "surface_strategies": {
+    "cards": "bg-[#1A1A1A] border border-white/10 rounded-2xl",
+    "bottom_nav": "absolute bottom-0 left-0 right-0 bg-[#0A0A0A]/90 backdrop-blur-xl border-t border-white/10 h-20 flex justify-around items-center px-6 z-50",
+    "glass": "bg-black/60 backdrop-blur-xl border border-white/10",
+    "paywall_card": "bg-[#1A1A1A] border-2 border-[#6F61EF] rounded-3xl relative overflow-hidden shadow-[0_0_30px_rgba(111,97,239,0.2)]"
+  },
+  "components_instructions": {
+    "buttons": {
+      "primary": "bg-[#6F61EF] text-white font-bold h-14 rounded-xl w-full flex items-center justify-center text-lg transition-transform active:scale-[0.98]",
+      "secondary": "bg-transparent text-white border border-white/20 font-bold h-14 rounded-xl w-full flex items-center justify-center text-lg active:bg-white/5",
+      "icon_action": "h-12 w-12 rounded-full bg-[#1A1A1A] border border-white/10 flex items-center justify-center text-white"
+    },
+    "inputs": "bg-[#1A1A1A] border border-white/10 h-14 rounded-xl text-white px-4 focus:border-[#6F61EF] focus:outline-none focus:ring-1 focus:ring-[#6F61EF] placeholder:text-white/30",
+    "tags": "px-3 py-1 rounded-full text-[10px] font-bold bg-[#39D2C0]/10 text-[#39D2C0] uppercase tracking-wider border border-[#39D2C0]/20",
+    "checkbox": "w-6 h-6 rounded border-2 border-white/20 flex items-center justify-center data-[state=checked]:bg-[#6F61EF] data-[state=checked]:border-[#6F61EF]",
+    "bottom_tab_item": "flex flex-col items-center gap-1 text-white/50 data-[active=true]:text-[#6F61EF]"
+  },
+  "screens": {
+    "Onboarding": "Full screen flow. H1 'DEFINE YOUR GOAL'. Selectable cards for goals. Primary CTA fixed at bottom.",
+    "Home": "Header with 'Hello, User'. Metric cards for Streak (Teal accent). 'Today's Workout' hero card with background image and dark gradient overlay (bg-black/50 to bg-black/90).",
+    "Scanner": "Edge-to-edge camera UI (mocked with image). Absolute positioned UI. Floating action button for capture. Center targeting reticle using border-[#39D2C0].",
+    "Detection_Confirmation": "Bottom sheet layout over blurred background. List of detected machines with 'Edit'/'Delete' icons. Primary 'Generate Plan' button.",
+    "Plan_Overview": "Horizontal scroll for days. Vertical list of exercises grouped by muscle. Each exercise card shows sets/reps and a 'Start' button.",
+    "Active_Workout": "Focus mode. Big typography for sets/reps. Weight input field. Large 'Complete Set' button. Rest timer overlay (glassmorphism).",
+    "Exercise_Detail": "Modal/Screen. Image/Video placeholder at top (max-h-[40vh]). Title, muscle tags, step-by-step text instructions.",
+    "Profile": "Avatar, level progress bar. List of recent workouts.",
+    "Paywall": "Pro tier upsell. High visual impact. Features list with Teal checkmarks. Big Purple CTA."
+  },
+  "image_urls": [
+    {
+      "url": "https://images.unsplash.com/photo-1576678927484-cc907957088c",
+      "category": "Scanner Placeholder / Background",
+      "description": "Dumbbells on floor, useful for mimicking a user scanning equipment."
+    },
+    {
+      "url": "https://images.unsplash.com/photo-1722925541311-2117dfa21fe3",
+      "category": "Scanner Preview",
+      "description": "Close up of gym equipment, for detection state."
+    },
+    {
+      "url": "https://images.pexels.com/photos/13106808/pexels-photo-13106808.jpeg",
+      "category": "Home / Hero",
+      "description": "Determined woman working out with dumbbell in dark lighting. Good for 'Today's Workout' banner."
+    },
+    {
+      "url": "https://images.pexels.com/photos/13084972/pexels-photo-13084972.jpeg",
+      "category": "Paywall Background / Profile",
+      "description": "Woman working out with medicine ball. Premium moody lighting for the PRO paywall."
+    }
+  ],
+  "testing": {
+    "rules": [
+      "All interactive elements MUST include data-testid attribute in kebab-case.",
+      "Example: data-testid='start-workout-button'"
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Ensure all components are strictly customized to this 'Tactical Minimalism' dark theme.",
+    "Use Shadcn components for forms, inputs, and dialogs but override their default styles to match the border/background specified here.",
+    "Avoid Vercel's default light border styles.",
+    "Use Lucide-react for icons.",
+    "Do not use generic fonts like Inter. Use Barlow Condensed for headings and DM Sans for body.",
+    "Never use purely transparent headers/overlays; always use bg-black/80 backdrop-blur-xl.",
+    "Build this as a mobile web app representing React Native Expo, meaning the layout should be restricted to a mobile frame (max-w-md mx-auto h-[100dvh] overflow-y-auto relative bg-[#0A0A0A] shadow-2xl) to simulate the mobile app feel."
+  ]
+}
