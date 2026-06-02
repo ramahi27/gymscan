@@ -117,7 +117,7 @@ export default function ConfirmEquipment() {
           {loading ? (
             <>
               <ActivityIndicator color="#fff" />
-              <Text style={styles.ctaSub}>Building your plan with AI...</Text>
+              <Text style={styles.ctaSub}>Building your plan…</Text>
             </>
           ) : (
             <Text style={styles.ctaText}>GENERATE PLAN</Text>

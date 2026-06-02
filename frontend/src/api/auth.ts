@@ -10,6 +10,7 @@ export type AuthUser = {
   name: string;
   picture?: string | null;
   profile_id?: string | null;
+  is_admin?: boolean;
 };
 
 async function readToken(): Promise<string | null> {

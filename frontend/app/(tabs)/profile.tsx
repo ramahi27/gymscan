@@ -49,7 +49,7 @@ export default function ProfileScreen() {
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={styles.overline} testID="profile-title">PROFILE</Text>
 
-        {/* Empty state: no signed-in user AND no local anonymous profile */}
+        {!authChecked && !authUser && !profile ? null : null}
         {authChecked && !authUser && !profile ? (
           <View style={styles.emptyState} testID="profile-empty-state">
             <Ionicons name="person-circle-outline" size={64} color={COLORS.textSecondary} />
@@ -62,6 +62,23 @@ export default function ProfileScreen() {
         ) : (
           <>
             <Text style={styles.title}>{authUser?.name?.toUpperCase() || profile?.name?.toUpperCase() || "—"}</Text>
+
+            {authUser?.is_admin && (
+              <TouchableOpacity testID="profile-admin-button" style={styles.adminCard} onPress={() => router.push("/admin")}>
+                <Ionicons name="shield-checkmark" size={20} color={COLORS.secondary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.adminTitle}>ADMIN · MEDIA PANEL</Text>
+                  <Text style={styles.adminSub}>Upload exercise GIFs and photos</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#fff" />
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity testID="profile-edit-button" style={styles.editCard} onPress={() => router.push("/profile-edit")}>
+              <Ionicons name="create-outline" size={20} color={COLORS.secondary} />
+              <Text style={styles.editCardText}>EDIT PROFILE</Text>
+              <Ionicons name="chevron-forward" size={20} color="#fff" />
+            </TouchableOpacity>
 
         <View style={styles.metricsRow}>
           <View style={styles.metric}><Text style={styles.metricLabel}>STREAK</Text><Text style={styles.metricValue}>{profile?.streak ?? 0}</Text></View>
@@ -149,4 +166,9 @@ const styles = StyleSheet.create({
   emptySub: { color: COLORS.textSecondary, fontSize: 14, textAlign: "center", marginBottom: SPACING.lg },
   emptyCta: { paddingHorizontal: SPACING.lg, height: 52, borderRadius: RADII.md, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center" },
   emptyCtaText: { color: "#fff", fontWeight: "900", letterSpacing: 1.5, fontSize: 13 },
+  adminCard: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, padding: SPACING.md, borderRadius: RADII.lg, borderWidth: 2, borderColor: COLORS.secondary, backgroundColor: "rgba(57,210,192,0.1)", marginBottom: SPACING.sm },
+  adminTitle: { color: "#fff", fontWeight: "900", letterSpacing: 1, fontSize: 13 },
+  adminSub: { color: COLORS.textSecondary, fontSize: 12, marginTop: 2 },
+  editCard: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, padding: SPACING.md, borderRadius: RADII.lg, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, marginBottom: SPACING.md },
+  editCardText: { flex: 1, color: "#fff", fontWeight: "800", letterSpacing: 1, fontSize: 13 },
 });

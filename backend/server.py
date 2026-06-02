@@ -27,6 +27,7 @@ db = client[os.environ['DB_NAME']]
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 CLAUDE_MODEL = "claude-sonnet-4-5-20250929"
 SESSION_TTL_DAYS = 7
+ADMIN_EMAIL = "r.laith27@gmail.com"
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -45,6 +46,12 @@ class Profile(BaseModel):
     streak: int = 0
     is_pro: bool = False
     scans_used: int = 0
+    # extended fields (v4)
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    gender: Optional[str] = None  # male | female | unspecified
+    unit_pref: str = "metric"  # metric | imperial
+    photo_b64: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -53,6 +60,22 @@ class ProfileCreate(BaseModel):
     goal: str
     level: str
     days_per_week: int
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    gender: Optional[str] = None
+    unit_pref: Optional[str] = None
+
+
+class ProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    goal: Optional[str] = None
+    level: Optional[str] = None
+    days_per_week: Optional[int] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    gender: Optional[str] = None
+    unit_pref: Optional[str] = None
+    photo_b64: Optional[str] = None
 
 
 class ScanRequest(BaseModel):
@@ -125,6 +148,7 @@ class AuthUser(BaseModel):
     name: str
     picture: Optional[str] = None
     profile_id: Optional[str] = None
+    is_admin: bool = False
 
 
 class AuthResponse(BaseModel):
@@ -200,7 +224,15 @@ def _to_auth_user(user_doc: Dict[str, Any]) -> AuthUser:
         name=user_doc.get("name", ""),
         picture=user_doc.get("picture"),
         profile_id=user_doc.get("profile_id"),
+        is_admin=(user_doc.get("email", "").lower() == ADMIN_EMAIL.lower()),
     )
+
+
+async def _require_admin(authorization: Optional[str]) -> Dict[str, Any]:
+    user = await _resolve_user_from_token(authorization)
+    if (user.get("email") or "").lower() != ADMIN_EMAIL.lower():
+        raise HTTPException(403, "Admin only")
+    return user
 
 
 # ============ Helpers ============
@@ -257,13 +289,14 @@ async def _claude_generate_plan(profile: Dict[str, Any], equipment: List[str]) -
         '"split_name": str,'  # e.g. "Push/Pull/Legs" or "Full Body"
         '"days": ['
         '  {"day_index": int, "day_name": str, "focus": str, "exercises": ['
-        '    {"name": str, "muscle_group": str, "equipment_needed": str, "sets": int, "reps": str, '
+        '    {"name": str, "muscle_group": str, "equipment_needed": str, "sets": int, "reps": int, '
         '     "rest_seconds": int, "instructions": str}'
         '  ]}'
         ']'
         "}. "
         "Number of days MUST equal the user's days_per_week. Pick splits appropriate for level and goal. "
-        "Keep instructions to 1-2 short sentences. reps may be '8-12' or '30 sec'."
+        "Keep instructions to 1-2 short sentences. "
+        "IMPORTANT: 'reps' MUST be a single integer (e.g. 10), never a range like '8-12' and never a string."
     )
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
@@ -308,11 +341,15 @@ async def get_profile(user_id: str):
 
 
 @api_router.put("/profile/{user_id}", response_model=Profile)
-async def update_profile(user_id: str, p: ProfileCreate):
-    await db.profiles.update_one({"id": user_id}, {"$set": p.dict()})
+async def update_profile(user_id: str, p: ProfileUpdate):
+    update = {k: v for k, v in p.dict().items() if v is not None}
+    if update:
+        await db.profiles.update_one({"id": user_id}, {"$set": update})
     doc = await db.profiles.find_one({"id": user_id}, {"_id": 0})
     if not doc:
         raise HTTPException(404, "Profile not found")
+    # strip non-Profile fields like auth_user_id
+    doc.pop("auth_user_id", None)
     return Profile(**doc)
 
 
@@ -519,6 +556,73 @@ async def auth_logout(authorization: Optional[str] = Header(None)):
 async def auth_reset(req: ResetRequest):
     # MOCKED: no email actually sent. Always returns success to avoid email-enumeration.
     return {"ok": True, "message": "If an account exists for this email, a reset link has been sent."}
+
+
+# ============ Media (Admin-only writes) ============
+class MediaUpload(BaseModel):
+    exercise_key: str  # canonical key, lowercased exercise name
+    content_type: str  # "image/gif" | "image/png" | "image/jpeg" | "image/webp"
+    data_base64: str
+
+
+class MediaItem(BaseModel):
+    id: str
+    exercise_key: str
+    content_type: str
+    data_base64: str
+    uploaded_by: Optional[str] = None
+    uploaded_at: datetime
+
+
+def _normalise_key(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+
+
+@api_router.post("/admin/media", response_model=MediaItem)
+async def admin_upload_media(payload: MediaUpload, authorization: Optional[str] = Header(None)):
+    admin = await _require_admin(authorization)
+    key = _normalise_key(payload.exercise_key)
+    if not key:
+        raise HTTPException(400, "exercise_key required")
+    mid = str(uuid.uuid4())
+    doc = {
+        "id": mid,
+        "exercise_key": key,
+        "content_type": payload.content_type,
+        "data_base64": payload.data_base64,
+        "uploaded_by": admin["email"],
+        "uploaded_at": datetime.now(timezone.utc),
+    }
+    await db.media.replace_one({"exercise_key": key}, doc, upsert=True)
+    return MediaItem(**doc)
+
+
+@api_router.get("/admin/media", response_model=List[MediaItem])
+async def admin_list_media(authorization: Optional[str] = Header(None)):
+    await _require_admin(authorization)
+    docs = await db.media.find({}, {"_id": 0}).sort("uploaded_at", -1).to_list(500)
+    return [MediaItem(**d) for d in docs]
+
+
+@api_router.delete("/admin/media/{media_id}")
+async def admin_delete_media(media_id: str, authorization: Optional[str] = Header(None)):
+    await _require_admin(authorization)
+    await db.media.delete_one({"id": media_id})
+    return {"ok": True}
+
+
+@api_router.get("/media/{exercise_key}")
+async def get_media_by_key(exercise_key: str):
+    """Public read-only: returns base64 media for a given exercise key. 404 if not found."""
+    key = _normalise_key(exercise_key)
+    doc = await db.media.find_one({"exercise_key": key}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Not found")
+    return {
+        "exercise_key": doc["exercise_key"],
+        "content_type": doc["content_type"],
+        "data_base64": doc["data_base64"],
+    }
 
 
 app.include_router(api_router)

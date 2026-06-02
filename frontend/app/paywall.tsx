@@ -11,7 +11,7 @@ const FEATURES = [
   "Full plan history & versioning",
   "Progress tracking & analytics",
   "Custom plan editing",
-  "Priority AI generation",
+  "Priority generation",
 ];
 
 const BG = "https://images.pexels.com/photos/13084972/pexels-photo-13084972.jpeg";
