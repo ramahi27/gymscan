@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ImageBackground } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS, SPACING, RADII } from "@/src/constants/theme";
+import { authApi, AuthUser } from "@/src/api/auth";
 
 const FEATURES = [
   "Unlimited equipment scans",
@@ -18,6 +19,31 @@ const BG = "https://images.pexels.com/photos/13084972/pexels-photo-13084972.jpeg
 export default function Paywall() {
   const router = useRouter();
   const [plan, setPlan] = useState<"monthly" | "yearly">("yearly");
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [checking, setChecking] = useState(true);
+
+  // Require auth at the paywall moment. If not signed in, redirect to /login.
+  useEffect(() => {
+    (async () => {
+      const u = await authApi.me();
+      if (!u) {
+        router.replace({ pathname: "/login", params: { redirect: "/paywall" } });
+        return;
+      }
+      setUser(u);
+      setChecking(false);
+    })();
+  }, []);
+
+  if (checking) {
+    return (
+      <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <Text style={{ color: "#fff" }}>Loading…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>

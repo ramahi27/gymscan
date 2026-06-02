@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, Header
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -7,11 +7,14 @@ import re
 import json
 import logging
 import uuid
+import hashlib
+import secrets
 from pathlib import Path
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional, Any, Dict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
+import httpx
 from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
 
 ROOT_DIR = Path(__file__).parent
@@ -23,6 +26,7 @@ db = client[os.environ['DB_NAME']]
 
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 CLAUDE_MODEL = "claude-sonnet-4-5-20250929"
+SESSION_TTL_DAYS = 7
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -97,6 +101,106 @@ class SessionCreate(BaseModel):
     plan_id: str
     day_index: int
     completed_exercises: List[Dict[str, Any]] = []
+
+
+# ============ Auth Models ============
+class SignupRequest(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+
+
+class SigninRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class GoogleSessionRequest(BaseModel):
+    session_token: str  # short-lived token from Emergent OAuth
+
+
+class AuthUser(BaseModel):
+    user_id: str
+    email: str
+    name: str
+    picture: Optional[str] = None
+    profile_id: Optional[str] = None
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: AuthUser
+
+
+class ResetRequest(BaseModel):
+    email: EmailStr
+
+
+# ============ Auth helpers ============
+def _hash_password(pw: str) -> str:
+    salt = secrets.token_hex(16)
+    h = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt.encode(), 200_000)
+    return f"{salt}${h.hex()}"
+
+
+def _verify_password(pw: str, stored: str) -> bool:
+    try:
+        salt, hexhash = stored.split("$", 1)
+    except ValueError:
+        return False
+    h = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt.encode(), 200_000)
+    return secrets.compare_digest(h.hex(), hexhash)
+
+
+async def _create_session(user_id: str) -> str:
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    await db.user_sessions.insert_one({
+        "session_token": token,
+        "user_id": user_id,
+        "created_at": now,
+        "expires_at": now + timedelta(days=SESSION_TTL_DAYS),
+    })
+    return token
+
+
+async def _ensure_profile_for_user(user_id: str, name: str) -> str:
+    existing = await db.profiles.find_one({"auth_user_id": user_id}, {"_id": 0})
+    if existing:
+        return existing["id"]
+    prof = Profile(name=name, goal="muscle_gain", level="beginner", days_per_week=3)
+    doc = prof.dict()
+    doc["auth_user_id"] = user_id
+    await db.profiles.insert_one(doc)
+    return prof.id
+
+
+async def _resolve_user_from_token(authorization: Optional[str]) -> Dict[str, Any]:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(401, "Missing bearer token")
+    token = authorization.split(" ", 1)[1].strip()
+    sess = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
+    if not sess:
+        raise HTTPException(401, "Invalid session")
+    exp = sess["expires_at"]
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    if exp < datetime.now(timezone.utc):
+        raise HTTPException(401, "Session expired")
+    user = await db.users.find_one({"user_id": sess["user_id"]}, {"_id": 0})
+    if not user:
+        raise HTTPException(401, "User not found")
+    return user
+
+
+def _to_auth_user(user_doc: Dict[str, Any]) -> AuthUser:
+    return AuthUser(
+        user_id=user_doc["user_id"],
+        email=user_doc["email"],
+        name=user_doc.get("name", ""),
+        picture=user_doc.get("picture"),
+        profile_id=user_doc.get("profile_id"),
+    )
 
 
 # ============ Helpers ============
@@ -313,8 +417,6 @@ async def list_sessions(user_id: str):
     return [SessionLog(**d) for d in docs]
 
 
-app.include_router(api_router)
-
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -322,6 +424,104 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ============ Auth Routes ============
+@api_router.post("/auth/signup", response_model=AuthResponse)
+async def auth_signup(req: SignupRequest):
+    email = req.email.lower()
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing:
+        raise HTTPException(409, "Email already registered")
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    profile_id = await _ensure_profile_for_user(user_id, req.name)
+    doc = {
+        "user_id": user_id,
+        "email": email,
+        "name": req.name,
+        "password_hash": _hash_password(req.password),
+        "provider": "password",
+        "profile_id": profile_id,
+        "created_at": datetime.now(timezone.utc),
+    }
+    await db.users.insert_one(doc)
+    await db.profiles.update_one({"id": profile_id}, {"$set": {"auth_user_id": user_id}})
+    token = await _create_session(user_id)
+    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    return AuthResponse(token=token, user=_to_auth_user(user_doc))
+
+
+@api_router.post("/auth/signin", response_model=AuthResponse)
+async def auth_signin(req: SigninRequest):
+    email = req.email.lower()
+    user = await db.users.find_one({"email": email}, {"_id": 0})
+    if not user or not user.get("password_hash"):
+        raise HTTPException(401, "Invalid email or password")
+    if not _verify_password(req.password, user["password_hash"]):
+        raise HTTPException(401, "Invalid email or password")
+    token = await _create_session(user["user_id"])
+    return AuthResponse(token=token, user=_to_auth_user(user))
+
+
+@api_router.post("/auth/google", response_model=AuthResponse)
+async def auth_google(req: GoogleSessionRequest):
+    """Exchange Emergent OAuth session_token for our app session."""
+    try:
+        async with httpx.AsyncClient(timeout=15) as h:
+            r = await h.get(
+                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+                headers={"X-Session-ID": req.session_token},
+            )
+            if r.status_code != 200:
+                raise HTTPException(401, "Google verification failed")
+            data = r.json()
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Auth provider error: {e}")
+    email = (data.get("email") or "").lower()
+    name = data.get("name") or email.split("@")[0]
+    picture = data.get("picture")
+    if not email:
+        raise HTTPException(400, "No email in Google response")
+    user = await db.users.find_one({"email": email}, {"_id": 0})
+    if not user:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        profile_id = await _ensure_profile_for_user(user_id, name)
+        await db.users.insert_one({
+            "user_id": user_id,
+            "email": email,
+            "name": name,
+            "picture": picture,
+            "provider": "google",
+            "profile_id": profile_id,
+            "created_at": datetime.now(timezone.utc),
+        })
+        await db.profiles.update_one({"id": profile_id}, {"$set": {"auth_user_id": user_id}})
+        user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    token = await _create_session(user["user_id"])
+    return AuthResponse(token=token, user=_to_auth_user(user))
+
+
+@api_router.get("/auth/me", response_model=AuthUser)
+async def auth_me(authorization: Optional[str] = Header(None)):
+    user = await _resolve_user_from_token(authorization)
+    return _to_auth_user(user)
+
+
+@api_router.post("/auth/logout")
+async def auth_logout(authorization: Optional[str] = Header(None)):
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+        await db.user_sessions.delete_one({"session_token": token})
+    return {"ok": True}
+
+
+@api_router.post("/auth/reset")
+async def auth_reset(req: ResetRequest):
+    # MOCKED: no email actually sent. Always returns success to avoid email-enumeration.
+    return {"ok": True, "message": "If an account exists for this email, a reset link has been sent."}
+
+
+app.include_router(api_router)
 
 
 @app.on_event("shutdown")

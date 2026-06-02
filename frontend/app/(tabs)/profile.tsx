@@ -61,8 +61,29 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         )}
 
+        {!authUser && (
+          <TouchableOpacity testID="profile-signin-button" style={styles.signinCard} onPress={() => router.push("/login")}>
+            <Ionicons name="log-in-outline" size={20} color={COLORS.secondary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.signinTitle}>SIGN IN OR CREATE ACCOUNT</Text>
+              <Text style={styles.signinSub}>Sync plans, history & progress across devices</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#fff" />
+          </TouchableOpacity>
+        )}
+
+        {authUser && (
+          <View style={styles.accountRow} testID="profile-account-row">
+            <Ionicons name="person-circle-outline" size={20} color={COLORS.secondary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.accountLabel}>SIGNED IN AS</Text>
+              <Text style={styles.accountEmail}>{authUser.email}</Text>
+            </View>
+          </View>
+        )}
+
         <TouchableOpacity testID="profile-logout" style={styles.logout} onPress={logout}>
-          <Text style={styles.logoutText}>RESET PROFILE</Text>
+          <Text style={styles.logoutText}>{authUser ? "SIGN OUT" : "RESET PROFILE"}</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -88,4 +109,10 @@ const styles = StyleSheet.create({
   upgradeSub: { color: COLORS.textSecondary, fontSize: 12, marginTop: 2 },
   logout: { padding: SPACING.md, alignItems: "center" },
   logoutText: { color: COLORS.error, fontWeight: "800", letterSpacing: 1, fontSize: 13 },
+  signinCard: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, padding: SPACING.md, borderRadius: RADII.lg, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, marginBottom: SPACING.md },
+  signinTitle: { color: "#fff", fontWeight: "900", letterSpacing: 1, fontSize: 12 },
+  signinSub: { color: COLORS.textSecondary, fontSize: 12, marginTop: 2 },
+  accountRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, padding: SPACING.md, borderRadius: RADII.lg, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, marginBottom: SPACING.md },
+  accountLabel: { color: COLORS.secondary, fontSize: 10, fontWeight: "800", letterSpacing: 1 },
+  accountEmail: { color: "#fff", fontSize: 14, fontWeight: "700", marginTop: 2 },
 });

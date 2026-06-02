@@ -30,7 +30,17 @@ Mobile fitness app where users photograph gym equipment and receive a personaliz
 - `sessions`: id, user_id, plan_id, day_index, completed_exercises[], date
 
 ## Screens
-Onboarding · Home · Scan · Confirm Equipment · Equipment Picker · Plan · Workout · Exercise Detail · Profile · Paywall
+Onboarding · Login (NEW) · Home · Scan · Confirm Equipment · Equipment Picker · Plan · Workout · Exercise Detail · Profile · Paywall
+
+## Auth (v3)
+- **Email/password JWT** auth on FastAPI: `POST /api/auth/signup`, `/api/auth/signin`, `GET /api/auth/me`, `POST /api/auth/logout`.
+- **Emergent-managed Google Auth** via `/api/auth/google` (exchanges Emergent OAuth `session_token` for our session). Live in app — opens `auth.emergentagent.com`.
+- **Apple / Facebook**: UI-only placeholders (require native build).
+- **Forgot password**: `POST /api/auth/reset` is MOCKED — always returns 200, no email sent.
+- **Token storage**: `expo-secure-store` on mobile, `localStorage` on web (key: `auth_token`).
+- **When login is shown**: At the paywall moment (gating Pro upsell) and at app startup if a stored token is invalid/expired (logged-out returning user). Anonymous users can still onboard and use the app without an account.
+- **Profile linkage**: Each authenticated user gets one MongoDB `Profile` (`auth_user_id` field linking them).
+- New collections + indexes: `users` (unique `email`, `user_id`), `user_sessions` (unique `session_token`, TTL on `expires_at`).
 
 ## Feature additions (v2)
 - **Exercise / equipment photos** — keyword-matched curated Unsplash thumbnails on plan exercise rows, workout exercise hero images, confirm-equipment rows, and equipment picker. Helper: `/app/frontend/src/utils/exerciseImages.ts`. Swap-in path for ExerciseDB RapidAPI available.
