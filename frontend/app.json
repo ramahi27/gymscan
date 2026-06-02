@@ -34,7 +34,20 @@
           "backgroundColor": "#000"
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan gym equipment to build your workout"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Pick gym photos to detect equipment",
+          "cameraPermission": "Scan gym equipment to build your workout"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
