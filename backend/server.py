@@ -611,6 +611,54 @@ async def admin_delete_media(media_id: str, authorization: Optional[str] = Heade
     return {"ok": True}
 
 
+@api_router.get("/admin/items")
+async def admin_list_items(authorization: Optional[str] = Header(None)):
+    """Aggregate every distinct exercise (from all plans) and equipment (from all scans)
+    so the admin panel can preload a complete master list, each with its current media
+    (if uploaded) or null."""
+    await _require_admin(authorization)
+    exercises: Dict[str, Dict[str, Any]] = {}
+    async for p in db.plans.find({}, {"_id": 0, "plan": 1}):
+        for d in (p.get("plan", {}) or {}).get("days", []) or []:
+            for ex in d.get("exercises", []) or []:
+                name = (ex.get("name") or "").strip()
+                if not name:
+                    continue
+                key = _normalise_key(name)
+                if key not in exercises:
+                    exercises[key] = {
+                        "name": name,
+                        "key": key,
+                        "muscle_group": ex.get("muscle_group"),
+                        "equipment_needed": ex.get("equipment_needed"),
+                    }
+    equipment: Dict[str, Dict[str, Any]] = {}
+    async for s in db.scans.find({}, {"_id": 0, "detected_equipment": 1}):
+        for e in s.get("detected_equipment", []) or []:
+            name = (e.get("name") or "").strip()
+            if not name:
+                continue
+            key = _normalise_key(name)
+            if key not in equipment:
+                equipment[key] = {"name": name, "key": key, "category": e.get("category")}
+
+    media_docs = await db.media.find({}, {"_id": 0, "exercise_key": 1, "content_type": 1, "data_base64": 1, "id": 1}).to_list(2000)
+    media_by_key = {m["exercise_key"]: m for m in media_docs}
+
+    def attach(item: Dict[str, Any]) -> Dict[str, Any]:
+        m = media_by_key.get(item["key"])
+        item["media"] = (
+            {"id": m["id"], "content_type": m["content_type"], "data_base64": m["data_base64"]}
+            if m else None
+        )
+        return item
+
+    return {
+        "exercises": [attach(v) for v in sorted(exercises.values(), key=lambda x: x["name"].lower())],
+        "equipment": [attach(v) for v in sorted(equipment.values(), key=lambda x: x["name"].lower())],
+    }
+
+
 @api_router.get("/media/{exercise_key}")
 async def get_media_by_key(exercise_key: str):
     """Public read-only: returns base64 media for a given exercise key. 404 if not found."""

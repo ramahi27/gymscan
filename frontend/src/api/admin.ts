@@ -30,6 +30,10 @@ export async function adminAuthedFetch(path: string, options: RequestInit = {}) 
 
 export const adminApi = {
   listMedia: () => adminAuthedFetch("/admin/media"),
+  listItems: () => adminAuthedFetch("/admin/items") as Promise<{
+    exercises: { name: string; key: string; muscle_group?: string; equipment_needed?: string; media: null | { id: string; content_type: string; data_base64: string } }[];
+    equipment: { name: string; key: string; category?: string; media: null | { id: string; content_type: string; data_base64: string } }[];
+  }>,
   uploadMedia: (body: { exercise_key: string; content_type: string; data_base64: string }) =>
     adminAuthedFetch("/admin/media", { method: "POST", body: JSON.stringify(body) }),
   deleteMedia: (id: string) => adminAuthedFetch(`/admin/media/${id}`, { method: "DELETE" }),

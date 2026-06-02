@@ -5,22 +5,25 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Circle as SvgCircle } from "react-native-svg";
+import { COLORS } from "@/src/constants/theme";
 import { storage } from "@/src/utils/storage";
 import { api, Profile, WorkoutPlan, Exercise } from "@/src/api/client";
 import { suggestReps, suggestStartingWeightKg, suggestedRestSeconds } from "@/src/utils/suggestions";
 import { displayWeight, inputWeightToKg, weightUnitLabel } from "@/src/utils/units";
 import { getImageForName } from "@/src/utils/exerciseImages";
 
-// Screen colour palette — matches the attached screenshot (light theme).
+// Screen palette — matches the rest of GymScan (dark theme).
 const C = {
-  bg: "#FFFFFF",
-  text: "#0F0F12",
-  muted: "#9CA3AF",
-  primary: "#2EB6F4",
-  primarySoft: "#EAF7FE",
-  success: "#22C55E",
-  surface: "#F4F5F7",
-  border: "#EEF0F3",
+  bg: COLORS.background,
+  text: COLORS.textPrimary,
+  muted: COLORS.textSecondary,
+  primary: COLORS.primary,       // #6F61EF purple
+  primarySoft: "rgba(111,97,239,0.15)",
+  secondary: COLORS.secondary,   // #39D2C0 teal
+  success: COLORS.secondary,
+  surface: COLORS.surface,
+  surfaceActive: COLORS.surfaceActive,
+  border: COLORS.border,
 };
 
 type SetLog = {
@@ -87,6 +90,7 @@ export default function Workout() {
   const [timerPaused, setTimerPaused] = useState(false);
   const tickRef = useRef<any>(null);
   const [saving, setSaving] = useState(false);
+  const [completed, setCompleted] = useState<null | { exercises: number; sets: number; totalKg: number }>(null);
 
   // initial load
   useEffect(() => {
@@ -214,23 +218,57 @@ export default function Workout() {
     try {
       const uid = await storage.getItem("user_id", "");
       if (!uid) return;
-      const completed = dayObj.exercises.map((exi, i) => ({
+      let totalKg = 0;
+      let sets = 0;
+      const completedPayload = dayObj.exercises.map((exi, i) => ({
         name: exi.name,
-        sets: (logs[i] || []).map(s => ({
-          suggested_weight: s.suggestedWeight,
-          suggested_reps: s.suggestedReps,
-          actual_weight_input: s.weight,
-          actual_weight_kg: s.weight ? inputWeightToKg(Number(s.weight) || 0, pref) : 0,
-          actual_reps: s.reps,
-          done: s.done,
-        })),
+        sets: (logs[i] || []).map(s => {
+          if (s.done) {
+            sets += 1;
+            const wkg = s.weight ? inputWeightToKg(Number(s.weight) || 0, pref) : 0;
+            const reps = Number(s.reps) || 0;
+            totalKg += wkg * reps;
+          }
+          return {
+            suggested_weight: s.suggestedWeight,
+            suggested_reps: s.suggestedReps,
+            actual_weight_input: s.weight,
+            actual_weight_kg: s.weight ? inputWeightToKg(Number(s.weight) || 0, pref) : 0,
+            actual_reps: s.reps,
+            done: s.done,
+          };
+        }),
       }));
-      await api.logSession({ user_id: uid, plan_id: plan.id, day_index: dayIdx, completed_exercises: completed });
-      router.replace("/(tabs)/home");
+      await api.logSession({ user_id: uid, plan_id: plan.id, day_index: dayIdx, completed_exercises: completedPayload });
+      setCompleted({ exercises: dayObj.exercises.length, sets, totalKg: Math.round(totalKg) });
     } finally {
       setSaving(false);
     }
   };
+
+  // Completion summary screen.
+  if (completed) {
+    const totalDisp = pref === "imperial" ? Math.round(completed.totalKg * 2.20462) : completed.totalKg;
+    return (
+      <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+        <View style={styles.completeWrap} testID="workout-complete">
+          <View style={styles.completeBadge}>
+            <Ionicons name="checkmark" size={48} color="#fff" />
+          </View>
+          <Text style={styles.completeTitle}>WORKOUT{"\n"}COMPLETE</Text>
+          <Text style={styles.completeSub}>{dayObj.day_name} · {dayObj.focus}</Text>
+          <View style={styles.completeRow}>
+            <View style={styles.completeStat}><Text style={styles.completeStatNum} testID="summary-exercises">{completed.exercises}</Text><Text style={styles.completeStatLabel}>EXERCISES</Text></View>
+            <View style={styles.completeStat}><Text style={styles.completeStatNum} testID="summary-sets">{completed.sets}</Text><Text style={styles.completeStatLabel}>SETS</Text></View>
+            <View style={styles.completeStat}><Text style={styles.completeStatNum} testID="summary-weight">{totalDisp}</Text><Text style={styles.completeStatLabel}>{unitLabel.toUpperCase()} LIFTED</Text></View>
+          </View>
+          <TouchableOpacity testID="complete-go-home" style={styles.completeCta} onPress={() => router.replace("/(tabs)/home")}>
+            <Text style={styles.completeCtaText}>BACK TO HOME</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   const progressDots = dayObj.exercises.map((_, i) => i);
 
@@ -307,15 +345,28 @@ export default function Workout() {
           </View>
         ))}
 
-        {/* Add set + Log Set */}
+        {/* Add set + Log Set / Finish Workout */}
         <View style={styles.actionsRow}>
           <TouchableOpacity testID="add-set-button" style={styles.addSetBtn} onPress={addSet}>
-            <Ionicons name="grid" size={18} color={C.muted} />
+            <Ionicons name="add" size={20} color={C.text} />
           </TouchableOpacity>
-          <View style={styles.editBubble}><Ionicons name="create-outline" size={16} color="#fff" /></View>
-          <TouchableOpacity testID="log-set-button" style={styles.logSetBtn} onPress={logNextSet} disabled={doneCount >= totalCount}>
-            <Text style={styles.logSetText}>LOG SET</Text>
-          </TouchableOpacity>
+          {(() => {
+            const isLastExercise = exerciseIdx === dayObj.exercises.length - 1;
+            const allDone = totalCount > 0 && doneCount >= totalCount;
+            if (isLastExercise && allDone) {
+              return (
+                <TouchableOpacity testID="finish-workout-cta" style={styles.finishBtn} onPress={finishWorkout} disabled={saving}>
+                  <Ionicons name="trophy" size={18} color="#fff" />
+                  <Text style={styles.logSetText}>{saving ? "SAVING…" : "FINISH WORKOUT"}</Text>
+                </TouchableOpacity>
+              );
+            }
+            return (
+              <TouchableOpacity testID="log-set-button" style={[styles.logSetBtn, doneCount >= totalCount && styles.logSetBtnDisabled]} onPress={logNextSet} disabled={doneCount >= totalCount}>
+                <Text style={styles.logSetText}>LOG SET</Text>
+              </TouchableOpacity>
+            );
+          })()}
         </View>
 
         {/* Rest timer */}
@@ -368,23 +419,24 @@ const styles = StyleSheet.create({
   dots: { flexDirection: "row", justifyContent: "center", gap: 4, paddingVertical: 12 },
   dot: { width: 24, height: 3, borderRadius: 2, backgroundColor: C.surface },
   dotActive: { backgroundColor: C.primary },
-  dotDone: { backgroundColor: "#BFEAFA" },
+  dotDone: { backgroundColor: "rgba(57,210,192,0.4)" },
   titleRow: { flexDirection: "row", paddingHorizontal: 16, alignItems: "flex-end", marginBottom: 8 },
   exName: { flex: 1, color: C.text, fontSize: 22, fontWeight: "900", letterSpacing: -0.5, lineHeight: 26 },
   counter: { color: C.muted, fontSize: 14, fontWeight: "700" },
-  setRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 10, gap: 10 },
+  setRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 10, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border },
   setCell: { color: C.text, fontSize: 22, fontWeight: "900" },
   setIdx: { width: 24, textAlign: "left" },
   cellDone: { color: C.muted },
-  setInput: { width: 70, fontSize: 24, fontWeight: "900", color: C.text, paddingVertical: 4, textAlign: "left" },
-  setInputEditable: { color: C.primary },
-  unit: { color: C.muted, fontSize: 14, fontWeight: "600", width: 40 },
-  checkBtn: { marginLeft: "auto", width: 32, height: 32, alignItems: "center", justifyContent: "center" },
-  removeBtn: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
-  actionsRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16, gap: 10 },
-  addSetBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: C.surface },
-  editBubble: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: C.primary },
-  logSetBtn: { flex: 1, height: 44, borderRadius: 22, backgroundColor: C.primary, alignItems: "center", justifyContent: "center" },
+  setInput: { width: 70, fontSize: 22, fontWeight: "900", color: C.text, paddingVertical: 4, textAlign: "left", backgroundColor: C.surface, borderRadius: 8, paddingHorizontal: 10 },
+  setInputEditable: { color: C.primary, backgroundColor: C.surfaceActive },
+  unit: { color: C.muted, fontSize: 13, fontWeight: "700", width: 36 },
+  checkBtn: { marginLeft: "auto", width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: C.surface },
+  removeBtn: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
+  actionsRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16, gap: 10 },
+  addSetBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
+  logSetBtn: { flex: 1, height: 48, borderRadius: 24, backgroundColor: C.primary, alignItems: "center", justifyContent: "center" },
+  logSetBtnDisabled: { backgroundColor: C.surfaceActive },
+  finishBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, height: 48, borderRadius: 24, backgroundColor: C.secondary },
   logSetText: { color: "#fff", fontWeight: "900", letterSpacing: 1.5, fontSize: 13 },
   timerWrap: { paddingTop: 16, alignItems: "center" },
   timerControlsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", paddingHorizontal: 16 },
@@ -395,10 +447,21 @@ const styles = StyleSheet.create({
   timerBig: { color: C.text, fontSize: 44, fontWeight: "900", letterSpacing: -1 },
   timerPaused: { color: C.muted, fontSize: 10, fontWeight: "800", letterSpacing: 2, marginTop: 4 },
   timerBottomRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", width: "100%", paddingHorizontal: 24, marginTop: 12 },
-  timerBottomBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: C.surface },
+  timerBottomBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
   restLabel: { color: C.muted, fontSize: 12, fontWeight: "700" },
-  restLabelOn: { color: C.primary, fontWeight: "900" },
+  restLabelOn: { color: C.secondary, fontWeight: "900" },
   exNav: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 16 },
-  exNavBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 22, backgroundColor: C.surface },
+  exNavBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 22, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
   exNavText: { color: C.text, fontWeight: "800", fontSize: 12, letterSpacing: 1 },
+  // Completion summary
+  completeWrap: { flex: 1, paddingHorizontal: 24, alignItems: "center", justifyContent: "center", gap: 16 },
+  completeBadge: { width: 96, height: 96, borderRadius: 48, alignItems: "center", justifyContent: "center", backgroundColor: C.primary, marginBottom: 8 },
+  completeTitle: { color: C.text, fontSize: 36, fontWeight: "900", letterSpacing: -1, textAlign: "center", lineHeight: 38 },
+  completeSub: { color: C.muted, fontSize: 14, fontWeight: "700" },
+  completeRow: { flexDirection: "row", gap: 12, marginTop: 16, width: "100%" },
+  completeStat: { flex: 1, padding: 16, borderRadius: 16, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, alignItems: "center" },
+  completeStatNum: { color: C.text, fontSize: 28, fontWeight: "900", marginBottom: 4 },
+  completeStatLabel: { color: C.secondary, fontSize: 10, fontWeight: "800", letterSpacing: 1, textAlign: "center" },
+  completeCta: { marginTop: 16, height: 56, borderRadius: 28, paddingHorizontal: 40, backgroundColor: C.primary, alignItems: "center", justifyContent: "center" },
+  completeCtaText: { color: "#fff", fontWeight: "900", letterSpacing: 1.5, fontSize: 14 },
 });
