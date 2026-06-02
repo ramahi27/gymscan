@@ -6,13 +6,21 @@ import { Ionicons } from "@expo/vector-icons";
 import { COLORS, SPACING, RADII } from "@/src/constants/theme";
 import { storage } from "@/src/utils/storage";
 import { api, Profile } from "@/src/api/client";
+import { authApi, AuthUser } from "@/src/api/auth";
 
 export default function ProfileScreen() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [sessionCount, setSessionCount] = useState(0);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
 
   const load = useCallback(async () => {
+    // Resolve auth state first (never crashes — `me()` returns null on 401/no-token)
+    const me = await authApi.me();
+    setAuthUser(me);
+    setAuthChecked(true);
+
     const uid = await storage.getItem("user_id", "");
     if (!uid) return;
     try {
@@ -25,6 +33,12 @@ export default function ProfileScreen() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const logout = async () => {
+    if (authUser) {
+      await authApi.logout();
+      router.replace("/login");
+      return;
+    }
+    // Anonymous reset
     await storage.removeItem("user_id");
     await storage.removeItem("last_scan");
     router.replace("/onboarding");
@@ -34,7 +48,20 @@ export default function ProfileScreen() {
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={styles.overline} testID="profile-title">PROFILE</Text>
-        <Text style={styles.title}>{profile?.name?.toUpperCase() || "—"}</Text>
+
+        {/* Empty state: no signed-in user AND no local anonymous profile */}
+        {authChecked && !authUser && !profile ? (
+          <View style={styles.emptyState} testID="profile-empty-state">
+            <Ionicons name="person-circle-outline" size={64} color={COLORS.textSecondary} />
+            <Text style={styles.emptyTitle}>SIGN IN TO VIEW{"\n"}YOUR PROFILE</Text>
+            <Text style={styles.emptySub}>Track streaks, history, and progress across devices.</Text>
+            <TouchableOpacity testID="profile-empty-signin" style={styles.emptyCta} onPress={() => router.push("/login")}>
+              <Text style={styles.emptyCtaText}>SIGN IN OR CREATE ACCOUNT</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            <Text style={styles.title}>{authUser?.name?.toUpperCase() || profile?.name?.toUpperCase() || "—"}</Text>
 
         <View style={styles.metricsRow}>
           <View style={styles.metric}><Text style={styles.metricLabel}>STREAK</Text><Text style={styles.metricValue}>{profile?.streak ?? 0}</Text></View>
@@ -85,6 +112,8 @@ export default function ProfileScreen() {
         <TouchableOpacity testID="profile-logout" style={styles.logout} onPress={logout}>
           <Text style={styles.logoutText}>{authUser ? "SIGN OUT" : "RESET PROFILE"}</Text>
         </TouchableOpacity>
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -115,4 +144,9 @@ const styles = StyleSheet.create({
   accountRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, padding: SPACING.md, borderRadius: RADII.lg, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, marginBottom: SPACING.md },
   accountLabel: { color: COLORS.secondary, fontSize: 10, fontWeight: "800", letterSpacing: 1 },
   accountEmail: { color: "#fff", fontSize: 14, fontWeight: "700", marginTop: 2 },
+  emptyState: { alignItems: "center", paddingTop: SPACING.xxl, paddingHorizontal: SPACING.md, gap: SPACING.sm },
+  emptyTitle: { color: "#fff", fontSize: 24, fontWeight: "900", letterSpacing: -0.5, textAlign: "center", marginTop: SPACING.md },
+  emptySub: { color: COLORS.textSecondary, fontSize: 14, textAlign: "center", marginBottom: SPACING.lg },
+  emptyCta: { paddingHorizontal: SPACING.lg, height: 52, borderRadius: RADII.md, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center" },
+  emptyCtaText: { color: "#fff", fontWeight: "900", letterSpacing: 1.5, fontSize: 13 },
 });
