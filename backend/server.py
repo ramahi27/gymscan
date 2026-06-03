@@ -27,7 +27,7 @@ db = client[os.environ['DB_NAME']]
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 CLAUDE_MODEL = "claude-sonnet-4-5-20250929"
 SESSION_TTL_DAYS = 7
-ADMIN_EMAIL = "r.laith27@gmail.com"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
