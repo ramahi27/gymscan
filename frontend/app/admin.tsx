@@ -92,12 +92,13 @@ export default function AdminScreen() {
         content_type: mime,
         data_base64: asset.base64,
       });
-      // patch local state
+      // patch local state + invalidate caches so plan/workout/confirm fetch the new asset.
       const patch = (rows: ItemRow[]) => rows.map(r => r.key === row.key
         ? { ...r, media: { id: updated.id, content_type: updated.content_type, data_base64: updated.data_base64 } }
         : r);
       setExercises(prev => patch(prev));
       setEquipment(prev => patch(prev));
+      invalidateMediaCache(row.name);
     } catch (e: any) {
       setError(e.message || "Upload failed");
     }
@@ -112,6 +113,7 @@ export default function AdminScreen() {
       const patch = (rows: ItemRow[]) => rows.map(r => r.key === row.key ? { ...r, media: null } : r);
       setExercises(prev => patch(prev));
       setEquipment(prev => patch(prev));
+      invalidateMediaCache(row.name);
     } catch (e: any) {
       setError(e.message || "Delete failed");
     }
@@ -228,4 +230,6 @@ const styles = StyleSheet.create({
   trashBtn: { padding: 6 },
   backCta: { marginTop: SPACING.lg, height: 52, borderRadius: RADII.md, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center" },
   backCtaText: { color: "#fff", fontWeight: "900", letterSpacing: 1.5, fontSize: 13 },
+});
+fontSize: 13 },
 });

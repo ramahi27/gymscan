@@ -1,13 +1,15 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS, SPACING, RADII } from "@/src/constants/theme";
+import { useExerciseMedia } from "@/src/utils/media";
 
 export default function ExerciseDetail() {
   const router = useRouter();
   const { data } = useLocalSearchParams<{ data: string }>();
   const ex = data ? JSON.parse(data) : null;
+  const uri = useExerciseMedia(ex?.name || "", ex?.muscle_group || "");
 
   if (!ex) {
     return (
@@ -27,9 +29,7 @@ export default function ExerciseDetail() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        <View style={styles.hero}>
-          <Ionicons name="barbell" size={64} color={COLORS.primary} />
-        </View>
+        <Image source={{ uri }} style={styles.hero} testID="exercise-detail-image" />
 
         <View style={styles.tagsRow}>
           <View style={styles.tag}><Text style={styles.tagText}>{ex.muscle_group?.toUpperCase()}</Text></View>
@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: SPACING.md, padding: SPACING.lg },
   headerLabel: { color: COLORS.secondary, fontSize: 11, fontWeight: "800", letterSpacing: 2 },
   scroll: { padding: SPACING.lg, paddingTop: 0, paddingBottom: SPACING.xxl },
-  hero: { height: 200, borderRadius: RADII.xl, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, alignItems: "center", justifyContent: "center", marginBottom: SPACING.lg },
+  hero: { height: 200, borderRadius: RADII.xl, backgroundColor: COLORS.surface, marginBottom: SPACING.lg, width: "100%" },
   tagsRow: { flexDirection: "row", gap: SPACING.sm, marginBottom: SPACING.sm },
   tag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: RADII.pill, backgroundColor: "rgba(57,210,192,0.1)", borderWidth: 1, borderColor: "rgba(57,210,192,0.3)" },
   tagText: { color: COLORS.secondary, fontSize: 10, fontWeight: "800", letterSpacing: 1 },

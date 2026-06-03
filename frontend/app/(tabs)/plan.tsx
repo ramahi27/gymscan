@@ -8,6 +8,24 @@ import { storage } from "@/src/utils/storage";
 import { api, WorkoutPlan } from "@/src/api/client";
 import { getImageForName } from "@/src/utils/exerciseImages";
 
+import { Image } from "expo-image";
+import { useExerciseMedia } from "@/src/utils/media";
+
+function PlanExerciseRow({ ex, i, onPress }: { ex: any; i: number; onPress: () => void }) {
+  const uri = useExerciseMedia(ex.name, ex.muscle_group);
+  return (
+    <TouchableOpacity testID={`plan-exercise-${i}`} style={styles.exCard} onPress={onPress}>
+      <Image source={{ uri }} style={styles.exImg} contentFit="cover" testID={`plan-exercise-image-${i}`} />
+      <View style={{ flex: 1 }}>
+        <View style={styles.tag}><Text style={styles.tagText}>{ex.muscle_group?.toUpperCase()}</Text></View>
+        <Text style={styles.exName}>{ex.name}</Text>
+        <Text style={styles.exMeta}>{ex.sets} × {ex.reps}  ·  {ex.rest_seconds}s rest</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={20} color={COLORS.textSecondary} />
+    </TouchableOpacity>
+  );
+}
+
 export default function PlanScreen() {
   const router = useRouter();
   const [plan, setPlan] = useState<WorkoutPlan | null>(null);
@@ -67,22 +85,12 @@ export default function PlanScreen() {
         <Text style={styles.dayName}>{day.day_name}</Text>
         <Text style={styles.dayFocus}>{day.exercises.length} exercises</Text>
         {day.exercises.map((ex, i) => (
-          <TouchableOpacity
+          <PlanExerciseRow
             key={`${ex.name}-${i}`}
-            testID={`plan-exercise-${i}`}
-            style={styles.exCard}
+            ex={ex}
+            i={i}
             onPress={() => router.push({ pathname: "/exercise-detail", params: { data: JSON.stringify(ex) } })}
-          >
-            <Image source={{ uri: getImageForName(`${ex.name} ${ex.muscle_group}`) }} style={styles.exImg} testID={`plan-exercise-image-${i}`} />
-            <View style={{ flex: 1 }}>
-              <View style={styles.tag}>
-                <Text style={styles.tagText}>{ex.muscle_group?.toUpperCase()}</Text>
-              </View>
-              <Text style={styles.exName}>{ex.name}</Text>
-              <Text style={styles.exMeta}>{ex.sets} × {ex.reps}  ·  {ex.rest_seconds}s rest</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={COLORS.textSecondary} />
-          </TouchableOpacity>
+          />
         ))}
 
         <TouchableOpacity

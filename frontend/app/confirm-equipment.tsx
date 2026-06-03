@@ -6,7 +6,23 @@ import { Ionicons } from "@expo/vector-icons";
 import { COLORS, SPACING, RADII } from "@/src/constants/theme";
 import { storage } from "@/src/utils/storage";
 import { api, DetectedEquipment, ScanResult } from "@/src/api/client";
-import { getImageForName } from "@/src/utils/exerciseImages";
+import { useExerciseMedia } from "@/src/utils/media";
+
+function EquipmentRow({ name, category, idx, onRemove }: { name: string; category?: string; idx: number; onRemove: () => void }) {
+  const uri = useExerciseMedia(name, category || "");
+  return (
+    <View style={styles.itemRow} testID={`equipment-row-${idx}`}>
+      <Image source={{ uri }} style={styles.itemThumb} testID={`equipment-thumb-${idx}`} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.itemName}>{name}</Text>
+        {category ? <Text style={styles.itemCat}>{category.toUpperCase()}</Text> : null}
+      </View>
+      <TouchableOpacity testID={`equipment-remove-${idx}`} onPress={onRemove} style={styles.removeBtn}>
+        <Ionicons name="trash-outline" size={18} color={COLORS.error} />
+      </TouchableOpacity>
+    </View>
+  );
+}
 
 export default function ConfirmEquipment() {
   const router = useRouter();
@@ -86,16 +102,7 @@ export default function ConfirmEquipment() {
         </View>
 
         {items.map((it, i) => (
-          <View key={`${it.name}-${i}`} style={styles.itemRow} testID={`equipment-row-${i}`}>
-            <Image source={{ uri: getImageForName(it.name) }} style={styles.itemThumb} testID={`equipment-thumb-${i}`} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.itemName}>{it.name}</Text>
-              {it.category ? <Text style={styles.itemCat}>{it.category.toUpperCase()}</Text> : null}
-            </View>
-            <TouchableOpacity testID={`equipment-remove-${i}`} onPress={() => removeItem(i)} style={styles.removeBtn}>
-              <Ionicons name="trash-outline" size={18} color={COLORS.error} />
-            </TouchableOpacity>
-          </View>
+          <EquipmentRow key={`${it.name}-${i}`} name={it.name} category={it.category || undefined} idx={i} onRemove={() => removeItem(i)} />
         ))}
 
         {items.length === 0 && (

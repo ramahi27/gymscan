@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Animated, Easing, Dimensions } from "react-native";
 import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -51,12 +51,30 @@ function CircleTimer({ remaining, total, paused }: { remaining: number; total: n
   return (
     <View style={{ width: TIMER_SIZE, height: TIMER_SIZE, alignItems: "center", justifyContent: "center" }}>
       <Svg width={TIMER_SIZE} height={TIMER_SIZE}>
-        <SvgCircle cx={TIMER_SIZE / 2} cy={TIMER_SIZE / 2} r={TIMER_RADIUS} stroke={C.surface} strokeWidth={TIMER_STROKE} fill="none" />
+        <Defs>
+          <RadialGradient id="glow" cx="50%" cy="50%" rx="50%" ry="50%">
+            <Stop offset="0" stopColor="#6F61EF" stopOpacity="0" />
+            <Stop offset="0.85" stopColor="#6F61EF" stopOpacity="0.18" />
+            <Stop offset="1" stopColor="#6F61EF" stopOpacity="0" />
+          </RadialGradient>
+        </Defs>
+        {/* Soft purple halo for the "glow" feel */}
+        <SvgCircle cx={TIMER_SIZE/2} cy={TIMER_SIZE/2} r={TIMER_RADIUS+10} fill="url(#glow)" />
+        <SvgCircle cx={TIMER_SIZE / 2} cy={TIMER_SIZE / 2} r={TIMER_RADIUS} stroke="rgba(255,255,255,0.06)" strokeWidth={TIMER_STROKE} fill="none" />
+        {/* Glow underlay — wide soft stroke */}
+        {progress > 0 && (
+          <SvgCircle
+            cx={TIMER_SIZE/2} cy={TIMER_SIZE/2} r={TIMER_RADIUS}
+            stroke="#6F61EF" strokeOpacity={0.35} strokeWidth={TIMER_STROKE + 10} fill="none"
+            strokeDasharray={`${TIMER_CIRC} ${TIMER_CIRC}`} strokeDashoffset={dashOffset}
+            strokeLinecap="round" transform={`rotate(-90 ${TIMER_SIZE/2} ${TIMER_SIZE/2})`}
+          />
+        )}
         <SvgCircle
           cx={TIMER_SIZE / 2}
           cy={TIMER_SIZE / 2}
           r={TIMER_RADIUS}
-          stroke={C.primary}
+          stroke="#6F61EF"
           strokeWidth={TIMER_STROKE}
           fill="none"
           strokeDasharray={`${TIMER_CIRC} ${TIMER_CIRC}`}
@@ -71,6 +89,27 @@ function CircleTimer({ remaining, total, paused }: { remaining: number; total: n
         {paused ? <Text style={styles.timerPaused}>PAUSED</Text> : null}
       </View>
     </View>
+  );
+}
+
+// Animated, teal-filled checkmark circle for completed sets.
+function SetCheck({ done, onPress, testID }: { done: boolean; onPress: () => void; testID: string }) {
+  const scale = useRef(new Animated.Value(done ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.timing(scale, {
+      toValue: done ? 1 : 0,
+      duration: 220,
+      easing: Easing.out(Easing.back(1.7)),
+      useNativeDriver: true,
+    }).start();
+  }, [done]);
+  return (
+    <TouchableOpacity testID={testID} onPress={onPress} style={styles.checkOuter} activeOpacity={0.8}>
+      <Animated.View style={[styles.checkFill, { transform: [{ scale }] }]}>
+        <Ionicons name="checkmark" size={20} color="#001A18" />
+      </Animated.View>
+      {!done && <Ionicons name="ellipse-outline" size={26} color="rgba(255,255,255,0.25)" style={{ position: "absolute" }} />}
+    </TouchableOpacity>
   );
 }
 
@@ -127,11 +166,8 @@ export default function Workout() {
 
       // Background-load admin GIFs / photos and patch them in as they arrive.
       (d?.exercises || []).forEach(async (ex, i) => {
-        const key = ex.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-        try {
-          const m = await api.getMediaByKey(key);
-          setMediaUriByIdx(prev => ({ ...prev, [i]: `data:${m.content_type};base64,${m.data_base64}` }));
-        } catch { /* keep fallback */ }
+        const uri = await resolveMediaUri(ex.name, ex.muscle_group);
+        setMediaUriByIdx(prev => ({ ...prev, [i]: uri }));
       });
     })();
   }, [dayIdx]);
@@ -336,12 +372,10 @@ export default function Workout() {
               placeholderTextColor={C.muted}
             />
             <Text style={[styles.unit, s.done && styles.cellDone]}>reps</Text>
-            <TouchableOpacity testID={`toggle-set-${setIdx}`} style={styles.checkBtn} onPress={() => toggleSetDone(setIdx)}>
-              <Ionicons name="checkmark" size={22} color={s.done ? C.success : "#D1D5DB"} />
-            </TouchableOpacity>
             <TouchableOpacity testID={`remove-set-${setIdx}`} style={styles.removeBtn} onPress={() => removeSet(setIdx)}>
               <Ionicons name="close" size={16} color={C.muted} />
             </TouchableOpacity>
+            <SetCheck done={s.done} onPress={() => toggleSetDone(setIdx)} testID={`toggle-set-${setIdx}`} />
           </View>
         ))}
 
@@ -356,14 +390,21 @@ export default function Workout() {
             if (isLastExercise && allDone) {
               return (
                 <TouchableOpacity testID="finish-workout-cta" style={styles.finishBtn} onPress={finishWorkout} disabled={saving}>
-                  <Ionicons name="trophy" size={18} color="#fff" />
-                  <Text style={styles.logSetText}>{saving ? "SAVING…" : "FINISH WORKOUT"}</Text>
+                  <Text style={styles.logSetText}>{saving ? "SAVING…" : "FINISH WORKOUT 🎉"}</Text>
+                </TouchableOpacity>
+              );
+            }
+            if (allDone) {
+              // Not last exercise — advance to next.
+              return (
+                <TouchableOpacity testID="next-exercise-cta" style={styles.logSetBtn} onPress={() => setExerciseIdx(i => Math.min(dayObj.exercises.length - 1, i + 1))}>
+                  <Text style={styles.logSetText}>NEXT EXERCISE  →</Text>
                 </TouchableOpacity>
               );
             }
             return (
-              <TouchableOpacity testID="log-set-button" style={[styles.logSetBtn, doneCount >= totalCount && styles.logSetBtnDisabled]} onPress={logNextSet} disabled={doneCount >= totalCount}>
-                <Text style={styles.logSetText}>LOG SET</Text>
+              <TouchableOpacity testID="log-set-button" style={styles.logSetBtn} onPress={logNextSet}>
+                <Text style={styles.logSetText}>COMPLETE SET</Text>
               </TouchableOpacity>
             );
           })()}
@@ -415,7 +456,7 @@ const styles = StyleSheet.create({
   iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: C.surface },
   charts: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: C.surface },
   chartsText: { color: C.text, fontWeight: "800", fontSize: 11, letterSpacing: 1 },
-  hero: { width: "100%", height: 260, backgroundColor: C.surface },
+  hero: { width: Dimensions.get("window").width, height: 320, backgroundColor: C.surface },
   dots: { flexDirection: "row", justifyContent: "center", gap: 4, paddingVertical: 12 },
   dot: { width: 24, height: 3, borderRadius: 2, backgroundColor: C.surface },
   dotActive: { backgroundColor: C.primary },
@@ -423,14 +464,15 @@ const styles = StyleSheet.create({
   titleRow: { flexDirection: "row", paddingHorizontal: 16, alignItems: "flex-end", marginBottom: 8 },
   exName: { flex: 1, color: C.text, fontSize: 22, fontWeight: "900", letterSpacing: -0.5, lineHeight: 26 },
   counter: { color: C.muted, fontSize: 14, fontWeight: "700" },
-  setRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 10, gap: 10, borderBottomWidth: 1, borderBottomColor: C.border },
+  setRow: { flexDirection: "row", alignItems: "center", marginHorizontal: 16, paddingHorizontal: 14, paddingVertical: 12, gap: 10, backgroundColor: C.surface, borderRadius: 16, marginBottom: 8, borderWidth: 1, borderColor: C.border },
   setCell: { color: C.text, fontSize: 22, fontWeight: "900" },
   setIdx: { width: 24, textAlign: "left" },
   cellDone: { color: C.muted },
   setInput: { width: 70, fontSize: 22, fontWeight: "900", color: C.text, paddingVertical: 4, textAlign: "left", backgroundColor: C.surface, borderRadius: 8, paddingHorizontal: 10 },
   setInputEditable: { color: C.primary, backgroundColor: C.surfaceActive },
   unit: { color: C.muted, fontSize: 13, fontWeight: "700", width: 36 },
-  checkBtn: { marginLeft: "auto", width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: C.surface },
+  checkOuter: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
+  checkFill: { width: 30, height: 30, borderRadius: 15, backgroundColor: C.secondary, alignItems: "center", justifyContent: "center", shadowColor: C.secondary, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.6, shadowRadius: 8 },
   removeBtn: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
   actionsRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16, gap: 10 },
   addSetBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },

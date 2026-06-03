@@ -618,7 +618,7 @@ async def admin_list_items(authorization: Optional[str] = Header(None)):
     (if uploaded) or null."""
     await _require_admin(authorization)
     exercises: Dict[str, Dict[str, Any]] = {}
-    async for p in db.plans.find({}, {"_id": 0, "plan": 1}):
+    async for p in db.plans.find({}, {"_id": 0, "plan": 1}).limit(1000):
         for d in (p.get("plan", {}) or {}).get("days", []) or []:
             for ex in d.get("exercises", []) or []:
                 name = (ex.get("name") or "").strip()
@@ -633,7 +633,7 @@ async def admin_list_items(authorization: Optional[str] = Header(None)):
                         "equipment_needed": ex.get("equipment_needed"),
                     }
     equipment: Dict[str, Dict[str, Any]] = {}
-    async for s in db.scans.find({}, {"_id": 0, "detected_equipment": 1}):
+    async for s in db.scans.find({}, {"_id": 0, "detected_equipment": 1}).limit(1000):
         for e in s.get("detected_equipment", []) or []:
             name = (e.get("name") or "").strip()
             if not name:

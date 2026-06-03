@@ -62,11 +62,11 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const redirectUrl = Platform.OS === "web"
-        ? (globalThis.location?.origin || "") + "/"
+        ? window.location.origin + "/"
         : ExpoLinking.createURL("auth");
       const authUrl = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
       if (Platform.OS === "web") {
-        globalThis.location.href = authUrl;
+        window.location.href = authUrl;
         return;
       }
       const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);
