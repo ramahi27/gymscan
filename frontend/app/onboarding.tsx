@@ -44,6 +44,7 @@ export default function Onboarding() {
   const [weightKg, setWeightKg] = useState("");
   const [weightLbs, setWeightLbs] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const canNext = () => {
     if (step === 0) return name.trim().length > 0;
@@ -84,7 +85,8 @@ export default function Onboarding() {
         await storage.setItem("user_id", p.id);
       }
       router.replace("/(tabs)/home");
-    } catch {
+    } catch (err: any) {
+      setError(err?.message || "Something went wrong. Please try again.");
       setLoading(false);
     }
   };
@@ -208,15 +210,18 @@ export default function Onboarding() {
       </ScrollView>
 
       <View style={styles.footer}>
-        {step > 0 && (
-          <TouchableOpacity testID="back-button" style={styles.backBtn} onPress={() => setStep(step - 1)}>
-            <Ionicons name="arrow-back" size={20} color={COLORS.textPrimary} />
+        {error ? <Text style={styles.errorText} testID="onboarding-error">{error}</Text> : null}
+        <View style={styles.footerBtns}>
+          {step > 0 && (
+            <TouchableOpacity testID="back-button" style={styles.backBtn} onPress={() => setStep(step - 1)}>
+              <Ionicons name="arrow-back" size={20} color={COLORS.textPrimary} />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity testID="onboarding-next-button" style={[styles.cta, !canNext() && styles.ctaDisabled]}
+            disabled={!canNext() || loading} onPress={next}>
+            <Text style={styles.ctaText}>{loading ? "CREATING..." : step === TOTAL_STEPS - 1 ? "FINISH" : "CONTINUE"}</Text>
           </TouchableOpacity>
-        )}
-        <TouchableOpacity testID="onboarding-next-button" style={[styles.cta, !canNext() && styles.ctaDisabled]}
-          disabled={!canNext() || loading} onPress={next}>
-          <Text style={styles.ctaText}>{loading ? "CREATING..." : step === TOTAL_STEPS - 1 ? "FINISH" : "CONTINUE"}</Text>
-        </TouchableOpacity>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -246,7 +251,9 @@ const styles = StyleSheet.create({
   unitBtnActive: { backgroundColor: COLORS.primary },
   unitBtnText: { color: COLORS.textSecondary, fontSize: 11, fontWeight: "800", letterSpacing: 1 },
   unitBtnTextActive: { color: "#fff" },
-  footer: { flexDirection: "row", padding: SPACING.lg, gap: SPACING.sm },
+  footer: { padding: SPACING.lg },
+  footerBtns: { flexDirection: "row", gap: SPACING.sm },
+  errorText: { color: COLORS.error, fontSize: 13, marginBottom: SPACING.sm },
   backBtn: { width: 56, height: 56, borderRadius: RADII.md, borderWidth: 1, borderColor: COLORS.border, alignItems: "center", justifyContent: "center" },
   cta: { flex: 1, height: 56, borderRadius: RADII.md, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center" },
   ctaDisabled: { backgroundColor: COLORS.surfaceActive },
