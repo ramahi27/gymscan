@@ -1,23 +1,17 @@
 import { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS, SPACING, RADII } from "@/src/constants/theme";
 import { storage } from "@/src/utils/storage";
 import { api, DetectedEquipment, ScanResult } from "@/src/api/client";
-import { useExerciseMedia } from "@/src/utils/media";
 import { ExerciseIllustration } from "@/src/components/ExerciseIllustration";
 
 function EquipmentRow({ name, category, idx, onRemove }: { name: string; category?: string; idx: number; onRemove: () => void }) {
-  const uri = useExerciseMedia(name);
   return (
     <View style={styles.itemRow} testID={`equipment-row-${idx}`}>
-      {uri ? (
-        <Image source={{ uri }} style={styles.itemThumb} testID={`equipment-thumb-${idx}`} />
-      ) : (
-        <ExerciseIllustration name={`${name} ${category || ""}`} width={48} height={48} testID={`equipment-thumb-${idx}`} />
-      )}
+      <ExerciseIllustration name={`${name} ${category || ""}`} width={48} height={48} testID={`equipment-thumb-${idx}`} />
       <View style={{ flex: 1 }}>
         <Text style={styles.itemName}>{name}</Text>
         {category ? <Text style={styles.itemCat}>{category.toUpperCase()}</Text> : null}
