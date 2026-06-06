@@ -23,7 +23,9 @@ export default function Home() {
       const [p, plans] = await Promise.all([api.getProfile(uid), api.listPlans(uid)]);
       setProfile(p);
       setPlan(plans[0] || null);
-    } catch {}
+    } catch (err) {
+      console.error("[home] Failed to load profile/plans:", err);
+    }
     setLoading(false);
   }, []);
 

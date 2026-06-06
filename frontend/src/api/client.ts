@@ -82,6 +82,29 @@ export type MediaItem = {
   uploaded_at: string;
 };
 
+export type CompletedSet = {
+  suggested_weight: string;
+  suggested_reps: string;
+  actual_weight_input: string;
+  actual_weight_kg: number;
+  actual_reps: string;
+  done: boolean;
+};
+
+export type CompletedExercise = {
+  name: string;
+  sets: CompletedSet[];
+};
+
+export type SessionLog = {
+  id: string;
+  user_id: string;
+  plan_id: string;
+  day_index: number;
+  completed_exercises: CompletedExercise[];
+  date: string;
+};
+
 export const api = {
   createProfile: (body: { name: string; goal: string; level: string; days_per_week: number; height_cm?: number | null; weight_kg?: number | null; gender?: string | null; unit_pref?: string }) =>
     request<Profile>("/profile", { method: "POST", body: JSON.stringify(body) }),
@@ -94,8 +117,8 @@ export const api = {
     request<WorkoutPlan>("/plan", { method: "POST", body: JSON.stringify(body) }),
   listPlans: (user_id: string) => request<WorkoutPlan[]>(`/plans/${user_id}`),
   getPlan: (plan_id: string) => request<WorkoutPlan>(`/plan/${plan_id}`),
-  logSession: (body: { user_id: string; plan_id: string; day_index: number; completed_exercises: any[] }) =>
-    request<any>("/session", { method: "POST", body: JSON.stringify(body) }),
-  listSessions: (user_id: string) => request<any[]>(`/sessions/${user_id}`),
+  logSession: (body: { user_id: string; plan_id: string; day_index: number; completed_exercises: CompletedExercise[] }) =>
+    request<SessionLog>("/session", { method: "POST", body: JSON.stringify(body) }),
+  listSessions: (user_id: string) => request<SessionLog[]>(`/sessions/${user_id}`),
   getMediaByKey: (key: string) => request<{ exercise_key: string; content_type: string; data_base64: string }>(`/media/${encodeURIComponent(key)}`),
 };

@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator, ImageErrorEventData, NativeSyntheticEvent } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,9 +10,19 @@ import { useExerciseMedia } from "@/src/utils/media";
 
 function EquipmentRow({ name, category, idx, onRemove }: { name: string; category?: string; idx: number; onRemove: () => void }) {
   const uri = useExerciseMedia(name, category || "");
+  const [imgFailed, setImgFailed] = useState(false);
   return (
     <View style={styles.itemRow} testID={`equipment-row-${idx}`}>
-      <Image source={{ uri }} style={styles.itemThumb} testID={`equipment-thumb-${idx}`} />
+      {!imgFailed && uri ? (
+        <Image
+          source={{ uri }}
+          style={styles.itemThumb}
+          testID={`equipment-thumb-${idx}`}
+          onError={() => setImgFailed(true)}
+        />
+      ) : (
+        <View style={[styles.itemThumb, styles.itemThumbFallback]} testID={`equipment-thumb-${idx}`} />
+      )}
       <View style={{ flex: 1 }}>
         <Text style={styles.itemName}>{name}</Text>
         {category ? <Text style={styles.itemCat}>{category.toUpperCase()}</Text> : null}
@@ -147,6 +157,7 @@ const styles = StyleSheet.create({
   addMissingText: { flex: 1, color: "#fff", fontSize: 13, fontWeight: "800", letterSpacing: 1 },
   itemRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, padding: SPACING.sm, borderRadius: RADII.md, marginBottom: SPACING.sm },
   itemThumb: { width: 48, height: 48, borderRadius: RADII.sm, backgroundColor: COLORS.surfaceActive },
+  itemThumbFallback: { alignItems: "center", justifyContent: "center" },
   itemName: { color: "#fff", fontSize: 15, fontWeight: "700" },
   itemCat: { color: COLORS.secondary, fontSize: 10, fontWeight: "800", letterSpacing: 1, marginTop: 2 },
   removeBtn: { padding: SPACING.sm },

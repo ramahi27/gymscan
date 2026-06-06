@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Header, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -6,9 +6,11 @@ import os
 import re
 import json
 import logging
+import time
 import uuid
 import hashlib
 import secrets
+from collections import defaultdict
 from pathlib import Path
 from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional, Any, Dict
@@ -25,9 +27,25 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
-CLAUDE_MODEL = "claude-sonnet-4-5-20250929"
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5-20250929")
 SESSION_TTL_DAYS = 7
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
+
+# In-memory rate limiter for auth endpoints (per email/IP, 10 attempts per 5 min)
+_rate_buckets: Dict[str, List[float]] = defaultdict(list)
+_RATE_WINDOW = 300
+_RATE_MAX = 10
+
+def _check_rate_limit(key: str) -> None:
+    now = time.time()
+    bucket = _rate_buckets[key]
+    bucket[:] = [t for t in bucket if now - t < _RATE_WINDOW]
+    if len(bucket) >= _RATE_MAX:
+        raise HTTPException(429, "Too many attempts. Please wait before trying again.")
+    bucket.append(now)
+
+ALLOWED_GOALS = {"weight_loss", "muscle_gain", "endurance"}
+ALLOWED_LEVELS = {"beginner", "intermediate", "advanced"}
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -304,11 +322,18 @@ async def _claude_generate_plan(profile: Dict[str, Any], equipment: List[str]) -
         system_message=system,
     ).with_model("anthropic", CLAUDE_MODEL)
 
+    # Sanitize profile fields against known-good values before interpolating into the prompt
+    goal = profile.get("goal") if profile.get("goal") in ALLOWED_GOALS else "muscle_gain"
+    level = profile.get("level") if profile.get("level") in ALLOWED_LEVELS else "beginner"
+    days_pw = profile.get("days_per_week", 3)
+    if not isinstance(days_pw, int) or not (1 <= days_pw <= 7):
+        days_pw = 3
+
     user_text = (
         f"User profile:\n"
-        f"- Goal: {profile.get('goal')}\n"
-        f"- Level: {profile.get('level')}\n"
-        f"- Days per week: {profile.get('days_per_week')}\n"
+        f"- Goal: {goal}\n"
+        f"- Level: {level}\n"
+        f"- Days per week: {days_pw}\n"
         f"Available equipment: {', '.join(equipment) if equipment else 'bodyweight only'}\n"
         f"Generate the plan JSON now."
     )
@@ -454,12 +479,15 @@ async def list_sessions(user_id: str):
     return [SessionLog(**d) for d in docs]
 
 
+_raw_origins = os.environ.get("ALLOWED_ORIGINS", "")
+_allowed_origins: List[str] = [o.strip() for o in _raw_origins.split(",") if o.strip()] or ["*"]
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_allowed_origins,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 
@@ -467,6 +495,7 @@ app.add_middleware(
 @api_router.post("/auth/signup", response_model=AuthResponse)
 async def auth_signup(req: SignupRequest):
     email = req.email.lower()
+    _check_rate_limit(email)
     existing = await db.users.find_one({"email": email}, {"_id": 0})
     if existing:
         raise HTTPException(409, "Email already registered")
@@ -491,6 +520,7 @@ async def auth_signup(req: SignupRequest):
 @api_router.post("/auth/signin", response_model=AuthResponse)
 async def auth_signin(req: SigninRequest):
     email = req.email.lower()
+    _check_rate_limit(email)
     user = await db.users.find_one({"email": email}, {"_id": 0})
     if not user or not user.get("password_hash"):
         raise HTTPException(401, "Invalid email or password")
@@ -674,6 +704,20 @@ async def get_media_by_key(exercise_key: str):
 
 
 app.include_router(api_router)
+
+
+@app.on_event("startup")
+async def create_indexes():
+    await db.users.create_index("email", unique=True)
+    await db.user_sessions.create_index("session_token", unique=True)
+    await db.user_sessions.create_index("expires_at")
+    await db.profiles.create_index("id", unique=True)
+    await db.profiles.create_index("auth_user_id")
+    await db.scans.create_index("user_id")
+    await db.plans.create_index("user_id")
+    await db.sessions.create_index("user_id")
+    await db.media.create_index("exercise_key", unique=True)
+    logger.info("Database indexes ensured")
 
 
 @app.on_event("shutdown")

@@ -4,10 +4,10 @@ import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import Svg, { Circle as SvgCircle } from "react-native-svg";
+import Svg, { Circle as SvgCircle, Defs, RadialGradient, Stop } from "react-native-svg";
 import { COLORS } from "@/src/constants/theme";
 import { storage } from "@/src/utils/storage";
-import { api, Profile, WorkoutPlan, Exercise } from "@/src/api/client";
+import { api, Profile, WorkoutPlan, Exercise, CompletedExercise } from "@/src/api/client";
 import { suggestReps, suggestStartingWeightKg, suggestedRestSeconds } from "@/src/utils/suggestions";
 import { displayWeight, inputWeightToKg, weightUnitLabel } from "@/src/utils/units";
 import { getImageForName } from "@/src/utils/exerciseImages";
@@ -256,7 +256,7 @@ export default function Workout() {
       if (!uid) return;
       let totalKg = 0;
       let sets = 0;
-      const completedPayload = dayObj.exercises.map((exi, i) => ({
+      const completedPayload: CompletedExercise[] = dayObj.exercises.map((exi, i) => ({
         name: exi.name,
         sets: (logs[i] || []).map(s => {
           if (s.done) {
