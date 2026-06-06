@@ -1,7 +1,11 @@
 // Single source of truth for exercise / equipment media.
-// Hits /api/media/{key} (admin-uploaded photos/GIFs).
-// When no admin media exists, returns "" — callers render ExerciseIllustration instead.
-// Caches results in-memory for the session.
+//
+// Resolution order:
+//   1. Admin-uploaded photo/GIF  → /api/media/{key}   (data: URI, served as base64)
+//   2. ExerciseDB animated GIF   → /api/exercise-gif/{name}  (https: URL)
+//   3. ""  → caller renders ExerciseIllustration SVG fallback
+//
+// Results are cached in-memory for the session.
 
 import { useEffect, useState } from "react";
 import { api } from "@/src/api/client";
@@ -18,20 +22,32 @@ export async function resolveMediaUri(name: string): Promise<string> {
   if (!key) return "";
   if (cache.has(key)) return cache.get(key)!;
   if (inflight.has(key)) return inflight.get(key)!;
+
   const p = (async () => {
+    // 1. Admin-uploaded media (base64 data URI)
     try {
       const m = await api.getMediaByKey(key);
       const uri = `data:${m.content_type};base64,${m.data_base64}`;
       cache.set(key, uri);
       return uri;
-    } catch {
-      cache.set(key, "");
-      return "";
-    } finally {
-      inflight.delete(key);
-    }
+    } catch {}
+
+    // 2. ExerciseDB animated GIF (https URL)
+    try {
+      const { gif_url } = await api.getExerciseGif(name);
+      if (gif_url) {
+        cache.set(key, gif_url);
+        return gif_url;
+      }
+    } catch {}
+
+    // 3. Nothing found — caller shows SVG illustration
+    cache.set(key, "");
+    return "";
   })();
+
   inflight.set(key, p);
+  p.finally(() => inflight.delete(key));
   return p;
 }
 

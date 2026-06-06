@@ -124,6 +124,7 @@ export default function Workout() {
   const [exerciseIdx, setExerciseIdx] = useState(0);
   const [logs, setLogs] = useState<Record<number, SetLog[]>>({});
   const [mediaUriByIdx, setMediaUriByIdx] = useState<Record<number, string>>({});
+  const [mediaLoadingByIdx, setMediaLoadingByIdx] = useState<Record<number, boolean>>({});
   // Rest timer state
   const [timerTotal, setTimerTotal] = useState(90);
   const [timerRemaining, setTimerRemaining] = useState(0);
@@ -159,11 +160,16 @@ export default function Workout() {
       setProfile(prof);
       setLogs(init);
 
-      // Background-load admin photos/GIFs and patch them in as they arrive.
-      // "" means no admin media → ExerciseIllustration component is shown instead.
+      // Kick off GIF loading for all exercises concurrently.
+      // Pass "name + muscle_group" so ExerciseDB gets the best match.
+      const loadingInit: Record<number, boolean> = {};
+      (d?.exercises || []).forEach((_, i) => { loadingInit[i] = true; });
+      setMediaLoadingByIdx(loadingInit);
+
       (d?.exercises || []).forEach(async (ex, i) => {
-        const uri = await resolveMediaUri(ex.name);
-        if (uri) setMediaUriByIdx(prev => ({ ...prev, [i]: uri }));
+        const uri = await resolveMediaUri(`${ex.name} ${ex.muscle_group}`);
+        setMediaUriByIdx(prev => ({ ...prev, [i]: uri }));
+        setMediaLoadingByIdx(prev => ({ ...prev, [i]: false }));
       });
     })();
   }, [dayIdx]);
@@ -321,8 +327,12 @@ export default function Workout() {
           </TouchableOpacity>
         </View>
 
-        {/* Hero: admin photo/GIF when available, otherwise generated illustration */}
-        {mediaUriByIdx[exerciseIdx] ? (
+        {/* Hero: animated GIF (admin upload or ExerciseDB), shimmer while loading, SVG fallback */}
+        {mediaLoadingByIdx[exerciseIdx] ? (
+          <View style={[styles.hero, styles.heroShimmer]} testID={`workout-hero-${exerciseIdx}`}>
+            <ActivityIndicator color={C.primary} size="large" />
+          </View>
+        ) : mediaUriByIdx[exerciseIdx] ? (
           <Image
             source={{ uri: mediaUriByIdx[exerciseIdx] }}
             style={styles.hero}
@@ -462,6 +472,7 @@ const styles = StyleSheet.create({
   charts: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: C.surface },
   chartsText: { color: C.text, fontWeight: "800", fontSize: 11, letterSpacing: 1 },
   hero: { width: Dimensions.get("window").width, height: 320, backgroundColor: C.surface },
+  heroShimmer: { alignItems: "center", justifyContent: "center" },
   dots: { flexDirection: "row", justifyContent: "center", gap: 4, paddingVertical: 12 },
   dot: { width: 24, height: 3, borderRadius: 2, backgroundColor: C.surface },
   dotActive: { backgroundColor: C.primary },

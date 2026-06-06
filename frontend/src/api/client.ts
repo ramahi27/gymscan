@@ -121,4 +121,5 @@ export const api = {
     request<SessionLog>("/session", { method: "POST", body: JSON.stringify(body) }),
   listSessions: (user_id: string) => request<SessionLog[]>(`/sessions/${user_id}`),
   getMediaByKey: (key: string) => request<{ exercise_key: string; content_type: string; data_base64: string }>(`/media/${encodeURIComponent(key)}`),
+  getExerciseGif: (name: string) => request<{ gif_url: string }>(`/exercise-gif/${encodeURIComponent(name)}`),
 };

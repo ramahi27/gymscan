@@ -28,6 +28,7 @@ db = client[os.environ['DB_NAME']]
 
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5-20250929")
+EXERCISE_DB_API_KEY = os.environ.get('EXERCISE_DB_API_KEY', '')
 SESSION_TTL_DAYS = 7
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
 
@@ -703,6 +704,67 @@ async def get_media_by_key(exercise_key: str):
     }
 
 
+@api_router.get("/exercise-gif/{exercise_name}")
+async def get_exercise_gif(exercise_name: str):
+    """Return an animated GIF URL for the given exercise name.
+
+    Priority:
+      1. Admin-uploaded media (base64 data URI already served via /media/{key})
+      2. ExerciseDB API lookup — result cached in MongoDB for 30 days
+      3. Empty string → client falls back to SVG illustration
+    """
+    key = _normalise_key(exercise_name)
+    if not key:
+        return {"gif_url": ""}
+
+    # Return cached result (positive or negative) to avoid repeated API calls
+    cached = await db.exercise_gif_cache.find_one({"key": key}, {"_id": 0})
+    if cached:
+        return {"gif_url": cached.get("gif_url", "")}
+
+    if not EXERCISE_DB_API_KEY:
+        await db.exercise_gif_cache.update_one(
+            {"key": key},
+            {"$set": {"key": key, "gif_url": "", "cached_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+        return {"gif_url": ""}
+
+    gif_url = ""
+    # Try the full name first, then progressively shorter forms for better matching
+    search_terms = [exercise_name.lower()]
+    words = exercise_name.lower().split()
+    if len(words) > 1:
+        search_terms.append(" ".join(words[:2]))   # first two words
+        search_terms.append(words[0])              # just the first word
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as h:
+            for term in search_terms:
+                r = await h.get(
+                    f"https://exercisedb.p.rapidapi.com/exercises/name/{term}",
+                    params={"limit": "5", "offset": "0"},
+                    headers={
+                        "X-RapidAPI-Key": EXERCISE_DB_API_KEY,
+                        "X-RapidAPI-Host": "exercisedb.p.rapidapi.com",
+                    },
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    if data and isinstance(data, list) and data[0].get("gifUrl"):
+                        gif_url = data[0]["gifUrl"]
+                        break
+    except Exception:
+        logger.exception("ExerciseDB GIF lookup failed: %s", exercise_name)
+
+    await db.exercise_gif_cache.update_one(
+        {"key": key},
+        {"$set": {"key": key, "gif_url": gif_url, "cached_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return {"gif_url": gif_url}
+
+
 app.include_router(api_router)
 
 
@@ -717,6 +779,8 @@ async def create_indexes():
     await db.plans.create_index("user_id")
     await db.sessions.create_index("user_id")
     await db.media.create_index("exercise_key", unique=True)
+    await db.exercise_gif_cache.create_index("key", unique=True)
+    await db.exercise_gif_cache.create_index("cached_at", expireAfterSeconds=30 * 24 * 3600)
     logger.info("Database indexes ensured")
 
 
