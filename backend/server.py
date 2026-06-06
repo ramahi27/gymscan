@@ -31,6 +31,7 @@ CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5-20250929")
 EXERCISE_DB_API_KEY = os.environ.get('EXERCISE_DB_API_KEY', '')
 SESSION_TTL_DAYS = 7
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
+FREE_SCAN_LIMIT = 5
 
 # In-memory rate limiter for auth endpoints (per email/IP, 10 attempts per 5 min)
 _rate_buckets: Dict[str, List[float]] = defaultdict(list)
@@ -353,6 +354,12 @@ async def root():
 
 @api_router.post("/profile", response_model=Profile)
 async def create_profile(p: ProfileCreate):
+    if p.goal not in ALLOWED_GOALS:
+        raise HTTPException(400, f"goal must be one of: {', '.join(sorted(ALLOWED_GOALS))}")
+    if p.level not in ALLOWED_LEVELS:
+        raise HTTPException(400, f"level must be one of: {', '.join(sorted(ALLOWED_LEVELS))}")
+    if not (1 <= p.days_per_week <= 7):
+        raise HTTPException(400, "days_per_week must be between 1 and 7 inclusive")
     prof = Profile(**p.dict())
     await db.profiles.insert_one(prof.dict())
     return prof
@@ -368,6 +375,12 @@ async def get_profile(user_id: str):
 
 @api_router.put("/profile/{user_id}", response_model=Profile)
 async def update_profile(user_id: str, p: ProfileUpdate):
+    if p.goal is not None and p.goal not in ALLOWED_GOALS:
+        raise HTTPException(400, f"goal must be one of: {', '.join(sorted(ALLOWED_GOALS))}")
+    if p.level is not None and p.level not in ALLOWED_LEVELS:
+        raise HTTPException(400, f"level must be one of: {', '.join(sorted(ALLOWED_LEVELS))}")
+    if p.days_per_week is not None and not (1 <= p.days_per_week <= 7):
+        raise HTTPException(400, "days_per_week must be between 1 and 7 inclusive")
     update = {k: v for k, v in p.dict().items() if v is not None}
     if update:
         await db.profiles.update_one({"id": user_id}, {"$set": update})
@@ -385,6 +398,10 @@ async def scan_equipment(req: ScanRequest):
         raise HTTPException(500, "LLM key not configured")
     if not req.images_base64:
         raise HTTPException(400, "At least one image is required")
+    profile_doc = await db.profiles.find_one({"id": req.user_id}, {"_id": 0})
+    if profile_doc and not profile_doc.get("is_pro", False):
+        if profile_doc.get("scans_used", 0) >= FREE_SCAN_LIMIT:
+            raise HTTPException(403, "Free plan limit reached (5 scans). Upgrade to Pro for unlimited scans.")
     try:
         detected_raw = await _claude_vision_detect(req.images_base64)
     except Exception as e:
@@ -468,8 +485,33 @@ async def get_plan(plan_id: str):
 async def log_session(s: SessionCreate):
     sess = SessionLog(**s.dict())
     await db.sessions.insert_one(sess.dict())
-    # update streak: simple increment if last session was yesterday or today
-    await db.profiles.update_one({"id": s.user_id}, {"$inc": {"streak": 1}})
+
+    # Fetch the most recent PREVIOUS session for this user (exclude the one just inserted)
+    today_utc = datetime.now(timezone.utc).date()
+    prev_cursor = db.sessions.find(
+        {"user_id": s.user_id, "id": {"$ne": sess.id}},
+        {"_id": 0, "date": 1},
+    ).sort("date", -1).limit(1)
+    prev_docs = await prev_cursor.to_list(1)
+
+    if not prev_docs:
+        # No prior session — start streak at 1
+        await db.profiles.update_one({"id": s.user_id}, {"$set": {"streak": 1}})
+    else:
+        last_dt = prev_docs[0]["date"]
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=timezone.utc)
+        last_date = last_dt.date()
+        if last_date == today_utc:
+            # Already counted today — no change
+            pass
+        elif last_date == today_utc - timedelta(days=1):
+            # Consecutive day — extend streak
+            await db.profiles.update_one({"id": s.user_id}, {"$inc": {"streak": 1}})
+        else:
+            # Gap of 2+ days — reset streak
+            await db.profiles.update_one({"id": s.user_id}, {"$set": {"streak": 1}})
+
     return sess
 
 
@@ -495,6 +537,10 @@ app.add_middleware(
 # ============ Auth Routes ============
 @api_router.post("/auth/signup", response_model=AuthResponse)
 async def auth_signup(req: SignupRequest):
+    if not req.name or not req.name.strip():
+        raise HTTPException(400, "Name must not be blank")
+    if len(req.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
     email = req.email.lower()
     _check_rate_limit(email)
     existing = await db.users.find_one({"email": email}, {"_id": 0})
@@ -772,7 +818,7 @@ app.include_router(api_router)
 async def create_indexes():
     await db.users.create_index("email", unique=True)
     await db.user_sessions.create_index("session_token", unique=True)
-    await db.user_sessions.create_index("expires_at")
+    await db.user_sessions.create_index("expires_at", expireAfterSeconds=0)
     await db.profiles.create_index("id", unique=True)
     await db.profiles.create_index("auth_user_id")
     await db.scans.create_index("user_id")
