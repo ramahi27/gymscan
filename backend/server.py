@@ -533,7 +533,6 @@ _allowed_origins: List[str] = [o.strip() for o in _raw_origins.split(",") if o.s
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
     allow_origins=_allowed_origins,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
