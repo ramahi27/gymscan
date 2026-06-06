@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Animated, Easing, Dimensions } from "react-native";
 import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -10,7 +10,8 @@ import { storage } from "@/src/utils/storage";
 import { api, Profile, WorkoutPlan, Exercise, CompletedExercise } from "@/src/api/client";
 import { suggestReps, suggestStartingWeightKg, suggestedRestSeconds } from "@/src/utils/suggestions";
 import { displayWeight, inputWeightToKg, weightUnitLabel } from "@/src/utils/units";
-import { getImageForName } from "@/src/utils/exerciseImages";
+import { resolveMediaUri } from "@/src/utils/media";
+import { ExerciseIllustration } from "@/src/components/ExerciseIllustration";
 
 // Screen palette — matches the rest of GymScan (dark theme).
 const C = {
@@ -154,20 +155,15 @@ export default function Workout() {
           done: false,
         }));
       });
-      // Render immediately with fallback images, then load admin media in background.
-      const fallback: Record<number, string> = {};
-      (d?.exercises || []).forEach((ex, i) => {
-        fallback[i] = getImageForName(`${ex.name} ${ex.muscle_group}`);
-      });
       setPlan(p);
       setProfile(prof);
       setLogs(init);
-      setMediaUriByIdx(fallback);
 
-      // Background-load admin GIFs / photos and patch them in as they arrive.
+      // Background-load admin photos/GIFs and patch them in as they arrive.
+      // "" means no admin media → ExerciseIllustration component is shown instead.
       (d?.exercises || []).forEach(async (ex, i) => {
-        const uri = await resolveMediaUri(ex.name, ex.muscle_group);
-        setMediaUriByIdx(prev => ({ ...prev, [i]: uri }));
+        const uri = await resolveMediaUri(ex.name);
+        if (uri) setMediaUriByIdx(prev => ({ ...prev, [i]: uri }));
       });
     })();
   }, [dayIdx]);
@@ -325,13 +321,22 @@ export default function Workout() {
           </TouchableOpacity>
         </View>
 
-        {/* Hero image / GIF */}
-        <Image
-          source={{ uri: mediaUriByIdx[exerciseIdx] || getImageForName(`${ex.name} ${ex.muscle_group}`) }}
-          style={styles.hero}
-          contentFit="cover"
-          testID={`workout-hero-${exerciseIdx}`}
-        />
+        {/* Hero: admin photo/GIF when available, otherwise generated illustration */}
+        {mediaUriByIdx[exerciseIdx] ? (
+          <Image
+            source={{ uri: mediaUriByIdx[exerciseIdx] }}
+            style={styles.hero}
+            contentFit="cover"
+            testID={`workout-hero-${exerciseIdx}`}
+          />
+        ) : (
+          <ExerciseIllustration
+            name={`${ex.name} ${ex.muscle_group}`}
+            width={Dimensions.get("window").width}
+            height={320}
+            testID={`workout-hero-${exerciseIdx}`}
+          />
+        )}
 
         {/* Exercise stepper dots */}
         <View style={styles.dots}>

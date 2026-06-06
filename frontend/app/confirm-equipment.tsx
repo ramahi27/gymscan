@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator, ImageErrorEventData, NativeSyntheticEvent } from "react-native";
+import { useCallback } from "react";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,21 +7,16 @@ import { COLORS, SPACING, RADII } from "@/src/constants/theme";
 import { storage } from "@/src/utils/storage";
 import { api, DetectedEquipment, ScanResult } from "@/src/api/client";
 import { useExerciseMedia } from "@/src/utils/media";
+import { ExerciseIllustration } from "@/src/components/ExerciseIllustration";
 
 function EquipmentRow({ name, category, idx, onRemove }: { name: string; category?: string; idx: number; onRemove: () => void }) {
-  const uri = useExerciseMedia(name, category || "");
-  const [imgFailed, setImgFailed] = useState(false);
+  const uri = useExerciseMedia(name);
   return (
     <View style={styles.itemRow} testID={`equipment-row-${idx}`}>
-      {!imgFailed && uri ? (
-        <Image
-          source={{ uri }}
-          style={styles.itemThumb}
-          testID={`equipment-thumb-${idx}`}
-          onError={() => setImgFailed(true)}
-        />
+      {uri ? (
+        <Image source={{ uri }} style={styles.itemThumb} testID={`equipment-thumb-${idx}`} />
       ) : (
-        <View style={[styles.itemThumb, styles.itemThumbFallback]} testID={`equipment-thumb-${idx}`} />
+        <ExerciseIllustration name={`${name} ${category || ""}`} width={48} height={48} testID={`equipment-thumb-${idx}`} />
       )}
       <View style={{ flex: 1 }}>
         <Text style={styles.itemName}>{name}</Text>
@@ -156,8 +151,7 @@ const styles = StyleSheet.create({
   addMissing: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, paddingHorizontal: SPACING.md, height: 52, borderRadius: RADII.md, borderWidth: 1, borderColor: COLORS.primary, backgroundColor: "rgba(111,97,239,0.08)" },
   addMissingText: { flex: 1, color: "#fff", fontSize: 13, fontWeight: "800", letterSpacing: 1 },
   itemRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, padding: SPACING.sm, borderRadius: RADII.md, marginBottom: SPACING.sm },
-  itemThumb: { width: 48, height: 48, borderRadius: RADII.sm, backgroundColor: COLORS.surfaceActive },
-  itemThumbFallback: { alignItems: "center", justifyContent: "center" },
+  itemThumb: { width: 48, height: 48, borderRadius: RADII.sm, backgroundColor: COLORS.surfaceActive, overflow: "hidden" },
   itemName: { color: "#fff", fontSize: 15, fontWeight: "700" },
   itemCat: { color: COLORS.secondary, fontSize: 10, fontWeight: "800", letterSpacing: 1, marginTop: 2 },
   removeBtn: { padding: SPACING.sm },
