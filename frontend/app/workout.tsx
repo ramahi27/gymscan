@@ -1,16 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Animated, Easing, Dimensions } from "react-native";
 import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import Svg, { Circle as SvgCircle } from "react-native-svg";
+import Svg, { Circle as SvgCircle, Defs, RadialGradient, Stop } from "react-native-svg";
 import { COLORS } from "@/src/constants/theme";
 import { storage } from "@/src/utils/storage";
-import { api, Profile, WorkoutPlan, Exercise } from "@/src/api/client";
+import { api, Profile, WorkoutPlan, Exercise, CompletedExercise } from "@/src/api/client";
 import { suggestReps, suggestStartingWeightKg, suggestedRestSeconds } from "@/src/utils/suggestions";
 import { displayWeight, inputWeightToKg, weightUnitLabel } from "@/src/utils/units";
-import { getImageForName } from "@/src/utils/exerciseImages";
+import { resolveMediaUri } from "@/src/utils/media";
+import { ExerciseIllustration } from "@/src/components/ExerciseIllustration";
 
 // Screen palette — matches the rest of GymScan (dark theme).
 const C = {
@@ -123,6 +124,7 @@ export default function Workout() {
   const [exerciseIdx, setExerciseIdx] = useState(0);
   const [logs, setLogs] = useState<Record<number, SetLog[]>>({});
   const [mediaUriByIdx, setMediaUriByIdx] = useState<Record<number, string>>({});
+  const [mediaLoadingByIdx, setMediaLoadingByIdx] = useState<Record<number, boolean>>({});
   // Rest timer state
   const [timerTotal, setTimerTotal] = useState(90);
   const [timerRemaining, setTimerRemaining] = useState(0);
@@ -154,20 +156,20 @@ export default function Workout() {
           done: false,
         }));
       });
-      // Render immediately with fallback images, then load admin media in background.
-      const fallback: Record<number, string> = {};
-      (d?.exercises || []).forEach((ex, i) => {
-        fallback[i] = getImageForName(`${ex.name} ${ex.muscle_group}`);
-      });
       setPlan(p);
       setProfile(prof);
       setLogs(init);
-      setMediaUriByIdx(fallback);
 
-      // Background-load admin GIFs / photos and patch them in as they arrive.
+      // Kick off GIF loading for all exercises concurrently.
+      // Pass "name + muscle_group" so ExerciseDB gets the best match.
+      const loadingInit: Record<number, boolean> = {};
+      (d?.exercises || []).forEach((_, i) => { loadingInit[i] = true; });
+      setMediaLoadingByIdx(loadingInit);
+
       (d?.exercises || []).forEach(async (ex, i) => {
-        const uri = await resolveMediaUri(ex.name, ex.muscle_group);
+        const uri = await resolveMediaUri(`${ex.name} ${ex.muscle_group}`);
         setMediaUriByIdx(prev => ({ ...prev, [i]: uri }));
+        setMediaLoadingByIdx(prev => ({ ...prev, [i]: false }));
       });
     })();
   }, [dayIdx]);
@@ -256,7 +258,7 @@ export default function Workout() {
       if (!uid) return;
       let totalKg = 0;
       let sets = 0;
-      const completedPayload = dayObj.exercises.map((exi, i) => ({
+      const completedPayload: CompletedExercise[] = dayObj.exercises.map((exi, i) => ({
         name: exi.name,
         sets: (logs[i] || []).map(s => {
           if (s.done) {
@@ -325,13 +327,26 @@ export default function Workout() {
           </TouchableOpacity>
         </View>
 
-        {/* Hero image / GIF */}
-        <Image
-          source={{ uri: mediaUriByIdx[exerciseIdx] || getImageForName(`${ex.name} ${ex.muscle_group}`) }}
-          style={styles.hero}
-          contentFit="cover"
-          testID={`workout-hero-${exerciseIdx}`}
-        />
+        {/* Hero: animated GIF (admin upload or ExerciseDB), shimmer while loading, SVG fallback */}
+        {mediaLoadingByIdx[exerciseIdx] ? (
+          <View style={[styles.hero, styles.heroShimmer]} testID={`workout-hero-${exerciseIdx}`}>
+            <ActivityIndicator color={C.primary} size="large" />
+          </View>
+        ) : mediaUriByIdx[exerciseIdx] ? (
+          <Image
+            source={{ uri: mediaUriByIdx[exerciseIdx] }}
+            style={styles.hero}
+            contentFit="cover"
+            testID={`workout-hero-${exerciseIdx}`}
+          />
+        ) : (
+          <ExerciseIllustration
+            name={`${ex.name} ${ex.muscle_group}`}
+            width={Dimensions.get("window").width}
+            height={320}
+            testID={`workout-hero-${exerciseIdx}`}
+          />
+        )}
 
         {/* Exercise stepper dots */}
         <View style={styles.dots}>
@@ -457,6 +472,7 @@ const styles = StyleSheet.create({
   charts: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: C.surface },
   chartsText: { color: C.text, fontWeight: "800", fontSize: 11, letterSpacing: 1 },
   hero: { width: Dimensions.get("window").width, height: 320, backgroundColor: C.surface },
+  heroShimmer: { alignItems: "center", justifyContent: "center" },
   dots: { flexDirection: "row", justifyContent: "center", gap: 4, paddingVertical: 12 },
   dot: { width: 24, height: 3, borderRadius: 2, backgroundColor: C.surface },
   dotActive: { backgroundColor: C.primary },

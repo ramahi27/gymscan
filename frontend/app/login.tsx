@@ -30,14 +30,16 @@ export default function LoginScreen() {
     setError("");
     if (!email.trim() || !password) { setError("Email and password required"); return; }
     if (mode === "signup" && !name.trim()) { setError("Name is required"); return; }
+    if (password.length < 8) { setError("Password must be at least 8 characters"); return; }
     setLoading(true);
     try {
       if (mode === "signup") {
         await authApi.signup(name.trim(), email.trim(), password);
+        router.replace("/onboarding?mode=setup");
       } else {
         await authApi.signin(email.trim(), password);
+        goNext();
       }
-      goNext();
     } catch (e: any) {
       setError(e.message || "Something went wrong");
     } finally {

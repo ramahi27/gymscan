@@ -1,15 +1,17 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
+import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS, SPACING, RADII } from "@/src/constants/theme";
 import { useExerciseMedia } from "@/src/utils/media";
+import { ExerciseIllustration } from "@/src/components/ExerciseIllustration";
 
 export default function ExerciseDetail() {
   const router = useRouter();
   const { data } = useLocalSearchParams<{ data: string }>();
   const ex = data ? JSON.parse(data) : null;
-  const uri = useExerciseMedia(ex?.name || "", ex?.muscle_group || "");
+  const uri = useExerciseMedia(ex?.name || "");
 
   if (!ex) {
     return (
@@ -29,7 +31,13 @@ export default function ExerciseDetail() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Image source={{ uri }} style={styles.hero} testID="exercise-detail-image" />
+        {uri ? (
+          <Image source={{ uri }} style={styles.hero} contentFit="cover" testID="exercise-detail-image" />
+        ) : (
+          <View style={[styles.hero, { alignItems: "center", justifyContent: "center" }]} testID="exercise-detail-image">
+            <ExerciseIllustration name={ex.name} width={160} height={160} />
+          </View>
+        )}
 
         <View style={styles.tagsRow}>
           <View style={styles.tag}><Text style={styles.tagText}>{ex.muscle_group?.toUpperCase()}</Text></View>

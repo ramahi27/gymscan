@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Header, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -6,9 +6,11 @@ import os
 import re
 import json
 import logging
+import time
 import uuid
 import hashlib
 import secrets
+from collections import defaultdict
 from pathlib import Path
 from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional, Any, Dict
@@ -25,9 +27,27 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
-CLAUDE_MODEL = "claude-sonnet-4-5-20250929"
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5-20250929")
+EXERCISE_DB_API_KEY = os.environ.get('EXERCISE_DB_API_KEY', '')
 SESSION_TTL_DAYS = 7
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
+FREE_SCAN_LIMIT = 5
+
+# In-memory rate limiter for auth endpoints (per email/IP, 10 attempts per 5 min)
+_rate_buckets: Dict[str, List[float]] = defaultdict(list)
+_RATE_WINDOW = 300
+_RATE_MAX = 10
+
+def _check_rate_limit(key: str) -> None:
+    now = time.time()
+    bucket = _rate_buckets[key]
+    bucket[:] = [t for t in bucket if now - t < _RATE_WINDOW]
+    if len(bucket) >= _RATE_MAX:
+        raise HTTPException(429, "Too many attempts. Please wait before trying again.")
+    bucket.append(now)
+
+ALLOWED_GOALS = {"weight_loss", "muscle_gain", "endurance"}
+ALLOWED_LEVELS = {"beginner", "intermediate", "advanced"}
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -304,11 +324,18 @@ async def _claude_generate_plan(profile: Dict[str, Any], equipment: List[str]) -
         system_message=system,
     ).with_model("anthropic", CLAUDE_MODEL)
 
+    # Sanitize profile fields against known-good values before interpolating into the prompt
+    goal = profile.get("goal") if profile.get("goal") in ALLOWED_GOALS else "muscle_gain"
+    level = profile.get("level") if profile.get("level") in ALLOWED_LEVELS else "beginner"
+    days_pw = profile.get("days_per_week", 3)
+    if not isinstance(days_pw, int) or not (1 <= days_pw <= 7):
+        days_pw = 3
+
     user_text = (
         f"User profile:\n"
-        f"- Goal: {profile.get('goal')}\n"
-        f"- Level: {profile.get('level')}\n"
-        f"- Days per week: {profile.get('days_per_week')}\n"
+        f"- Goal: {goal}\n"
+        f"- Level: {level}\n"
+        f"- Days per week: {days_pw}\n"
         f"Available equipment: {', '.join(equipment) if equipment else 'bodyweight only'}\n"
         f"Generate the plan JSON now."
     )
@@ -327,6 +354,12 @@ async def root():
 
 @api_router.post("/profile", response_model=Profile)
 async def create_profile(p: ProfileCreate):
+    if p.goal not in ALLOWED_GOALS:
+        raise HTTPException(400, f"goal must be one of: {', '.join(sorted(ALLOWED_GOALS))}")
+    if p.level not in ALLOWED_LEVELS:
+        raise HTTPException(400, f"level must be one of: {', '.join(sorted(ALLOWED_LEVELS))}")
+    if not (1 <= p.days_per_week <= 7):
+        raise HTTPException(400, "days_per_week must be between 1 and 7 inclusive")
     prof = Profile(**p.dict())
     await db.profiles.insert_one(prof.dict())
     return prof
@@ -342,6 +375,12 @@ async def get_profile(user_id: str):
 
 @api_router.put("/profile/{user_id}", response_model=Profile)
 async def update_profile(user_id: str, p: ProfileUpdate):
+    if p.goal is not None and p.goal not in ALLOWED_GOALS:
+        raise HTTPException(400, f"goal must be one of: {', '.join(sorted(ALLOWED_GOALS))}")
+    if p.level is not None and p.level not in ALLOWED_LEVELS:
+        raise HTTPException(400, f"level must be one of: {', '.join(sorted(ALLOWED_LEVELS))}")
+    if p.days_per_week is not None and not (1 <= p.days_per_week <= 7):
+        raise HTTPException(400, "days_per_week must be between 1 and 7 inclusive")
     update = {k: v for k, v in p.dict().items() if v is not None}
     if update:
         await db.profiles.update_one({"id": user_id}, {"$set": update})
@@ -359,6 +398,16 @@ async def scan_equipment(req: ScanRequest):
         raise HTTPException(500, "LLM key not configured")
     if not req.images_base64:
         raise HTTPException(400, "At least one image is required")
+    if len(req.images_base64) > 10:
+        raise HTTPException(400, "Maximum 10 images per scan")
+    MAX_B64_BYTES = 7 * 1024 * 1024  # ~5 MB original image
+    for img in req.images_base64:
+        if len(img.encode()) > MAX_B64_BYTES:
+            raise HTTPException(400, "One or more images exceed the 5 MB size limit. Please resize before scanning.")
+    profile_doc = await db.profiles.find_one({"id": req.user_id}, {"_id": 0})
+    if profile_doc and not profile_doc.get("is_pro", False):
+        if profile_doc.get("scans_used", 0) >= FREE_SCAN_LIMIT:
+            raise HTTPException(403, "Free plan limit reached (5 scans). Upgrade to Pro for unlimited scans.")
     try:
         detected_raw = await _claude_vision_detect(req.images_base64)
     except Exception as e:
@@ -442,8 +491,33 @@ async def get_plan(plan_id: str):
 async def log_session(s: SessionCreate):
     sess = SessionLog(**s.dict())
     await db.sessions.insert_one(sess.dict())
-    # update streak: simple increment if last session was yesterday or today
-    await db.profiles.update_one({"id": s.user_id}, {"$inc": {"streak": 1}})
+
+    # Fetch the most recent PREVIOUS session for this user (exclude the one just inserted)
+    today_utc = datetime.now(timezone.utc).date()
+    prev_cursor = db.sessions.find(
+        {"user_id": s.user_id, "id": {"$ne": sess.id}},
+        {"_id": 0, "date": 1},
+    ).sort("date", -1).limit(1)
+    prev_docs = await prev_cursor.to_list(1)
+
+    if not prev_docs:
+        # No prior session — start streak at 1
+        await db.profiles.update_one({"id": s.user_id}, {"$set": {"streak": 1}})
+    else:
+        last_dt = prev_docs[0]["date"]
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=timezone.utc)
+        last_date = last_dt.date()
+        if last_date == today_utc:
+            # Already counted today — no change
+            pass
+        elif last_date == today_utc - timedelta(days=1):
+            # Consecutive day — extend streak
+            await db.profiles.update_one({"id": s.user_id}, {"$inc": {"streak": 1}})
+        else:
+            # Gap of 2+ days — reset streak
+            await db.profiles.update_one({"id": s.user_id}, {"$set": {"streak": 1}})
+
     return sess
 
 
@@ -454,19 +528,26 @@ async def list_sessions(user_id: str):
     return [SessionLog(**d) for d in docs]
 
 
+_raw_origins = os.environ.get("ALLOWED_ORIGINS", "")
+_allowed_origins: List[str] = [o.strip() for o in _raw_origins.split(",") if o.strip()] or ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_allowed_origins,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 
 # ============ Auth Routes ============
 @api_router.post("/auth/signup", response_model=AuthResponse)
 async def auth_signup(req: SignupRequest):
+    if not req.name or not req.name.strip():
+        raise HTTPException(400, "Name must not be blank")
+    if len(req.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
     email = req.email.lower()
+    _check_rate_limit(email)
     existing = await db.users.find_one({"email": email}, {"_id": 0})
     if existing:
         raise HTTPException(409, "Email already registered")
@@ -491,6 +572,7 @@ async def auth_signup(req: SignupRequest):
 @api_router.post("/auth/signin", response_model=AuthResponse)
 async def auth_signin(req: SigninRequest):
     email = req.email.lower()
+    _check_rate_limit(email)
     user = await db.users.find_one({"email": email}, {"_id": 0})
     if not user or not user.get("password_hash"):
         raise HTTPException(401, "Invalid email or password")
@@ -578,12 +660,19 @@ def _normalise_key(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
 
 
+ALLOWED_MEDIA_TYPES = {"image/gif", "image/png", "image/jpeg", "image/webp"}
+MAX_MEDIA_B64_BYTES = 10 * 1024 * 1024  # 10 MB limit for admin uploads
+
 @api_router.post("/admin/media", response_model=MediaItem)
 async def admin_upload_media(payload: MediaUpload, authorization: Optional[str] = Header(None)):
     admin = await _require_admin(authorization)
     key = _normalise_key(payload.exercise_key)
     if not key:
         raise HTTPException(400, "exercise_key required")
+    if payload.content_type not in ALLOWED_MEDIA_TYPES:
+        raise HTTPException(400, f"content_type must be one of: {', '.join(sorted(ALLOWED_MEDIA_TYPES))}")
+    if len(payload.data_base64.encode()) > MAX_MEDIA_B64_BYTES:
+        raise HTTPException(400, "File too large. Maximum 10 MB.")
     mid = str(uuid.uuid4())
     doc = {
         "id": mid,
@@ -673,7 +762,84 @@ async def get_media_by_key(exercise_key: str):
     }
 
 
+@api_router.get("/exercise-gif/{exercise_name}")
+async def get_exercise_gif(exercise_name: str):
+    """Return an animated GIF URL for the given exercise name.
+
+    Priority:
+      1. Admin-uploaded media (base64 data URI already served via /media/{key})
+      2. ExerciseDB API lookup — result cached in MongoDB for 30 days
+      3. Empty string → client falls back to SVG illustration
+    """
+    key = _normalise_key(exercise_name)
+    if not key:
+        return {"gif_url": ""}
+
+    # Return cached result (positive or negative) to avoid repeated API calls
+    cached = await db.exercise_gif_cache.find_one({"key": key}, {"_id": 0})
+    if cached:
+        return {"gif_url": cached.get("gif_url", "")}
+
+    if not EXERCISE_DB_API_KEY:
+        await db.exercise_gif_cache.update_one(
+            {"key": key},
+            {"$set": {"key": key, "gif_url": "", "cached_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+        return {"gif_url": ""}
+
+    gif_url = ""
+    # Try the full name first, then progressively shorter forms for better matching
+    search_terms = [exercise_name.lower()]
+    words = exercise_name.lower().split()
+    if len(words) > 1:
+        search_terms.append(" ".join(words[:2]))   # first two words
+        search_terms.append(words[0])              # just the first word
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as h:
+            for term in search_terms:
+                r = await h.get(
+                    f"https://exercisedb.p.rapidapi.com/exercises/name/{term}",
+                    params={"limit": "5", "offset": "0"},
+                    headers={
+                        "X-RapidAPI-Key": EXERCISE_DB_API_KEY,
+                        "X-RapidAPI-Host": "exercisedb.p.rapidapi.com",
+                    },
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    if data and isinstance(data, list) and data[0].get("gifUrl"):
+                        gif_url = data[0]["gifUrl"]
+                        break
+    except Exception:
+        logger.exception("ExerciseDB GIF lookup failed: %s", exercise_name)
+
+    await db.exercise_gif_cache.update_one(
+        {"key": key},
+        {"$set": {"key": key, "gif_url": gif_url, "cached_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return {"gif_url": gif_url}
+
+
 app.include_router(api_router)
+
+
+@app.on_event("startup")
+async def create_indexes():
+    await db.users.create_index("email", unique=True)
+    await db.user_sessions.create_index("session_token", unique=True)
+    await db.user_sessions.create_index("expires_at", expireAfterSeconds=0)
+    await db.profiles.create_index("id", unique=True)
+    await db.profiles.create_index("auth_user_id")
+    await db.scans.create_index("user_id")
+    await db.plans.create_index("user_id")
+    await db.sessions.create_index("user_id")
+    await db.media.create_index("exercise_key", unique=True)
+    await db.exercise_gif_cache.create_index("key", unique=True)
+    await db.exercise_gif_cache.create_index("cached_at", expireAfterSeconds=30 * 24 * 3600)
+    logger.info("Database indexes ensured")
 
 
 @app.on_event("shutdown")
