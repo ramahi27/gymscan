@@ -398,6 +398,12 @@ async def scan_equipment(req: ScanRequest):
         raise HTTPException(500, "LLM key not configured")
     if not req.images_base64:
         raise HTTPException(400, "At least one image is required")
+    if len(req.images_base64) > 10:
+        raise HTTPException(400, "Maximum 10 images per scan")
+    MAX_B64_BYTES = 7 * 1024 * 1024  # ~5 MB original image
+    for img in req.images_base64:
+        if len(img.encode()) > MAX_B64_BYTES:
+            raise HTTPException(400, "One or more images exceed the 5 MB size limit. Please resize before scanning.")
     profile_doc = await db.profiles.find_one({"id": req.user_id}, {"_id": 0})
     if profile_doc and not profile_doc.get("is_pro", False):
         if profile_doc.get("scans_used", 0) >= FREE_SCAN_LIMIT:
@@ -655,12 +661,19 @@ def _normalise_key(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
 
 
+ALLOWED_MEDIA_TYPES = {"image/gif", "image/png", "image/jpeg", "image/webp"}
+MAX_MEDIA_B64_BYTES = 10 * 1024 * 1024  # 10 MB limit for admin uploads
+
 @api_router.post("/admin/media", response_model=MediaItem)
 async def admin_upload_media(payload: MediaUpload, authorization: Optional[str] = Header(None)):
     admin = await _require_admin(authorization)
     key = _normalise_key(payload.exercise_key)
     if not key:
         raise HTTPException(400, "exercise_key required")
+    if payload.content_type not in ALLOWED_MEDIA_TYPES:
+        raise HTTPException(400, f"content_type must be one of: {', '.join(sorted(ALLOWED_MEDIA_TYPES))}")
+    if len(payload.data_base64.encode()) > MAX_MEDIA_B64_BYTES:
+        raise HTTPException(400, "File too large. Maximum 10 MB.")
     mid = str(uuid.uuid4())
     doc = {
         "id": mid,

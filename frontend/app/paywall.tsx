@@ -25,13 +25,19 @@ export default function Paywall() {
   // Require auth at the paywall moment. If not signed in, redirect to /login.
   useEffect(() => {
     (async () => {
-      const u = await authApi.me();
-      if (!u) {
+      try {
+        const u = await authApi.me();
+        if (!u) {
+          router.replace({ pathname: "/login", params: { redirect: "/paywall" } });
+          return;
+        }
+        setUser(u);
+      } catch (err) {
+        console.error("[paywall] Auth check failed:", err);
         router.replace({ pathname: "/login", params: { redirect: "/paywall" } });
-        return;
+      } finally {
+        setChecking(false);
       }
-      setUser(u);
-      setChecking(false);
     })();
   }, []);
 

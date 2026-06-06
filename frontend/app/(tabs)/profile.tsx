@@ -34,7 +34,9 @@ export default function ProfileScreen() {
         const [p, s] = await Promise.all([api.getProfile(uid), api.listSessions(uid)]);
         setProfile(p);
         setSessionCount(s.length);
-      } catch {}
+      } catch (err) {
+        console.error("[profile] Failed to load data:", err);
+      }
     } finally {
       setLoading(false);
     }

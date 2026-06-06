@@ -1,21 +1,24 @@
 import { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { COLORS, SPACING, RADII } from "@/src/constants/theme";
 import { storage } from "@/src/utils/storage";
 import { api, WorkoutPlan } from "@/src/api/client";
-import { getImageForName } from "@/src/utils/exerciseImages";
-
-import { Image } from "expo-image";
 import { useExerciseMedia } from "@/src/utils/media";
+import { ExerciseIllustration } from "@/src/components/ExerciseIllustration";
 
 function PlanExerciseRow({ ex, i, onPress }: { ex: any; i: number; onPress: () => void }) {
-  const uri = useExerciseMedia(ex.name, ex.muscle_group);
+  const uri = useExerciseMedia(ex.name);
   return (
     <TouchableOpacity testID={`plan-exercise-${i}`} style={styles.exCard} onPress={onPress}>
-      <Image source={{ uri }} style={styles.exImg} contentFit="cover" testID={`plan-exercise-image-${i}`} />
+      {uri ? (
+        <Image source={{ uri }} style={styles.exImg} contentFit="cover" testID={`plan-exercise-image-${i}`} />
+      ) : (
+        <View style={styles.exImg}><ExerciseIllustration name={ex.name} width={64} height={64} /></View>
+      )}
       <View style={{ flex: 1 }}>
         <View style={styles.tag}><Text style={styles.tagText}>{ex.muscle_group?.toUpperCase()}</Text></View>
         <Text style={styles.exName}>{ex.name}</Text>
@@ -38,7 +41,9 @@ export default function PlanScreen() {
       const plans = await api.listPlans(uid);
       setPlan(plans[0] || null);
       setSelectedDay(0);
-    } catch {}
+    } catch (err) {
+      console.error("[plan] Failed to load plans:", err);
+    }
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
