@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS, SPACING, RADII } from "@/src/constants/theme";
 import { storage } from "@/src/utils/storage";
@@ -28,7 +28,9 @@ const TOTAL_STEPS = 6;
 
 export default function Onboarding() {
   const router = useRouter();
-  const [step, setStep] = useState(0);
+  const params = useLocalSearchParams<{ mode?: string }>();
+  const isSetup = params.mode === "setup";
+  const [step, setStep] = useState(isSetup ? 1 : 0);
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
   const [level, setLevel] = useState("");
@@ -66,12 +68,21 @@ export default function Onboarding() {
         ? Number(weightKg) || null
         : (weightLbs ? lbsToKg(Number(weightLbs) || 0) : null);
 
-      const p = await api.createProfile({
-        name: name.trim(), goal, level, days_per_week: days,
-        gender, unit_pref: unitPref,
-        height_cm: h_cm, weight_kg: w_kg,
-      });
-      await storage.setItem("user_id", p.id);
+      if (isSetup) {
+        const uid = await storage.getItem("user_id", "");
+        await api.updateProfile(uid, {
+          goal, level, days_per_week: days,
+          gender, unit_pref: unitPref,
+          height_cm: h_cm, weight_kg: w_kg,
+        });
+      } else {
+        const p = await api.createProfile({
+          name: name.trim(), goal, level, days_per_week: days,
+          gender, unit_pref: unitPref,
+          height_cm: h_cm, weight_kg: w_kg,
+        });
+        await storage.setItem("user_id", p.id);
+      }
       router.replace("/(tabs)/home");
     } catch {
       setLoading(false);

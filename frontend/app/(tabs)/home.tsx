@@ -9,6 +9,10 @@ import { api, Profile, WorkoutPlan } from "@/src/api/client";
 
 const HERO_IMG = "https://images.pexels.com/photos/13106808/pexels-photo-13106808.jpeg";
 
+function SkeletonBox({ w, h, radius = 8, style }: { w?: any; h: number; radius?: number; style?: object }) {
+  return <View style={[{ width: w ?? "100%", height: h, backgroundColor: COLORS.surface, borderRadius: radius }, style]} />;
+}
+
 export default function Home() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -39,71 +43,91 @@ export default function Home() {
         contentContainerStyle={styles.scroll}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={COLORS.primary} />}
       >
-        <View style={styles.headerRow}>
+        {loading && !profile ? (
           <View>
-            <Text style={styles.overline} testID="home-greeting">HELLO</Text>
-            <Text style={styles.title}>{profile?.name?.toUpperCase() || "ATHLETE"}</Text>
-          </View>
-          <TouchableOpacity testID="home-paywall-button" onPress={() => router.push("/paywall")} style={styles.proBadge}>
-            <Ionicons name="star" size={12} color={COLORS.secondary} />
-            <Text style={styles.proBadgeText}>{profile?.is_pro ? "PRO" : "GO PRO"}</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.metricsRow}>
-          <View style={styles.metric} testID="metric-streak">
-            <Text style={styles.metricLabel}>STREAK</Text>
-            <Text style={styles.metricValue}>{profile?.streak ?? 0}<Text style={styles.metricUnit}> days</Text></Text>
-          </View>
-          <View style={styles.metric} testID="metric-level">
-            <Text style={styles.metricLabel}>LEVEL</Text>
-            <Text style={styles.metricValue}>{profile?.level?.[0]?.toUpperCase() + (profile?.level?.slice(1) || "")}</Text>
-          </View>
-        </View>
-
-        <Text style={styles.sectionTitle}>TODAY'S WORKOUT</Text>
-        {today ? (
-          <TouchableOpacity testID="todays-workout-card" onPress={() => router.push(`/workout?day=0`)}>
-            <ImageBackground source={{ uri: HERO_IMG }} style={styles.heroCard} imageStyle={{ borderRadius: RADII.xl }}>
-              <View style={styles.heroOverlay}>
-                <Text style={styles.heroFocus}>{today.focus?.toUpperCase()}</Text>
-                <Text style={styles.heroDay}>{today.day_name}</Text>
-                <Text style={styles.heroMeta}>{today.exercises?.length || 0} exercises</Text>
-                <View style={styles.heroBtn}>
-                  <Text style={styles.heroBtnText}>START</Text>
-                  <Ionicons name="arrow-forward" size={16} color="#fff" />
-                </View>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: SPACING.lg }}>
+              <View>
+                <SkeletonBox w={60} h={10} style={{ marginBottom: 6 }} />
+                <SkeletonBox w={160} h={28} radius={6} />
               </View>
-            </ImageBackground>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity testID="home-empty-cta" style={styles.emptyCard} onPress={() => router.push("/(tabs)/scan")}>
-            <Ionicons name="scan-outline" size={32} color={COLORS.primary} />
-            <Text style={styles.emptyTitle}>NO PLAN YET</Text>
-            <Text style={styles.emptySub}>Scan gym equipment to build your plan</Text>
-            <View style={styles.emptyBtn}>
-              <Text style={styles.emptyBtnText}>START SCAN</Text>
+              <SkeletonBox w={72} h={32} radius={20} />
             </View>
-          </TouchableOpacity>
-        )}
-
-        {plan && (
+            <View style={{ flexDirection: "row", gap: SPACING.sm, marginBottom: SPACING.lg }}>
+              <SkeletonBox w={undefined} h={72} radius={12} style={{ flex: 1 }} />
+              <SkeletonBox w={undefined} h={72} radius={12} style={{ flex: 1 }} />
+            </View>
+            <SkeletonBox w={120} h={12} style={{ marginBottom: SPACING.sm }} />
+            <SkeletonBox h={200} radius={16} />
+          </View>
+        ) : (
           <>
-            <Text style={styles.sectionTitle}>WEEKLY SPLIT</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACING.sm }}>
-              {plan.plan.days.map((d, i) => (
-                <TouchableOpacity
-                  key={d.day_index}
-                  testID={`week-day-${i}`}
-                  style={styles.dayCard}
-                  onPress={() => router.push(`/workout?day=${i}`)}
-                >
-                  <Text style={styles.dayCardIdx}>D{i + 1}</Text>
-                  <Text style={styles.dayCardFocus}>{d.focus?.toUpperCase()}</Text>
-                  <Text style={styles.dayCardCount}>{d.exercises?.length} ex.</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+            <View style={styles.headerRow}>
+              <View>
+                <Text style={styles.overline} testID="home-greeting">HELLO</Text>
+                <Text style={styles.title}>{profile?.name?.toUpperCase() || "ATHLETE"}</Text>
+              </View>
+              <TouchableOpacity testID="home-paywall-button" onPress={() => router.push("/paywall")} style={styles.proBadge}>
+                <Ionicons name="star" size={12} color={COLORS.secondary} />
+                <Text style={styles.proBadgeText}>{profile?.is_pro ? "PRO" : "GO PRO"}</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.metricsRow}>
+              <View style={styles.metric} testID="metric-streak">
+                <Text style={styles.metricLabel}>STREAK</Text>
+                <Text style={styles.metricValue}>{profile?.streak ?? 0}<Text style={styles.metricUnit}> days</Text></Text>
+              </View>
+              <View style={styles.metric} testID="metric-level">
+                <Text style={styles.metricLabel}>LEVEL</Text>
+                <Text style={styles.metricValue}>{profile?.level?.[0]?.toUpperCase() + (profile?.level?.slice(1) || "")}</Text>
+              </View>
+            </View>
+
+            <Text style={styles.sectionTitle}>TODAY'S WORKOUT</Text>
+            {today ? (
+              <TouchableOpacity testID="todays-workout-card" onPress={() => router.push(`/workout?day=0`)}>
+                <ImageBackground source={{ uri: HERO_IMG }} style={styles.heroCard} imageStyle={{ borderRadius: RADII.xl }}>
+                  <View style={styles.heroOverlay}>
+                    <Text style={styles.heroFocus}>{today.focus?.toUpperCase()}</Text>
+                    <Text style={styles.heroDay}>{today.day_name}</Text>
+                    <Text style={styles.heroMeta}>{today.exercises?.length || 0} exercises</Text>
+                    <View style={styles.heroBtn}>
+                      <Text style={styles.heroBtnText}>START</Text>
+                      <Ionicons name="arrow-forward" size={16} color="#fff" />
+                    </View>
+                  </View>
+                </ImageBackground>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity testID="home-empty-cta" style={styles.emptyCard} onPress={() => router.push("/(tabs)/scan")}>
+                <Ionicons name="scan-outline" size={32} color={COLORS.primary} />
+                <Text style={styles.emptyTitle}>NO PLAN YET</Text>
+                <Text style={styles.emptySub}>Scan gym equipment to build your plan</Text>
+                <View style={styles.emptyBtn}>
+                  <Text style={styles.emptyBtnText}>START SCAN</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
+            {plan && (
+              <>
+                <Text style={styles.sectionTitle}>WEEKLY SPLIT</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACING.sm }}>
+                  {plan.plan.days.map((d, i) => (
+                    <TouchableOpacity
+                      key={d.day_index}
+                      testID={`week-day-${i}`}
+                      style={styles.dayCard}
+                      onPress={() => router.push(`/workout?day=${i}`)}
+                    >
+                      <Text style={styles.dayCardIdx}>D{i + 1}</Text>
+                      <Text style={styles.dayCardFocus}>{d.focus?.toUpperCase()}</Text>
+                      <Text style={styles.dayCardCount}>{d.exercises?.length} ex.</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </>
+            )}
           </>
         )}
       </ScrollView>

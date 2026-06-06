@@ -8,26 +8,36 @@ import { storage } from "@/src/utils/storage";
 import { api, Profile } from "@/src/api/client";
 import { authApi, AuthUser } from "@/src/api/auth";
 
+function SkeletonBox({ w, h, radius = 8, style }: { w?: any; h: number; radius?: number; style?: object }) {
+  return <View style={[{ width: w ?? "100%", height: h, backgroundColor: COLORS.surface, borderRadius: radius }, style]} />;
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [sessionCount, setSessionCount] = useState(0);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    // Resolve auth state first (never crashes — `me()` returns null on 401/no-token)
-    const me = await authApi.me();
-    setAuthUser(me);
-    setAuthChecked(true);
-
-    const uid = await storage.getItem("user_id", "");
-    if (!uid) return;
+    setLoading(true);
     try {
-      const [p, s] = await Promise.all([api.getProfile(uid), api.listSessions(uid)]);
-      setProfile(p);
-      setSessionCount(s.length);
-    } catch {}
+      // Resolve auth state first (never crashes — `me()` returns null on 401/no-token)
+      const me = await authApi.me();
+      setAuthUser(me);
+      setAuthChecked(true);
+
+      const uid = await storage.getItem("user_id", "");
+      if (!uid) return;
+      try {
+        const [p, s] = await Promise.all([api.getProfile(uid), api.listSessions(uid)]);
+        setProfile(p);
+        setSessionCount(s.length);
+      } catch {}
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -49,8 +59,20 @@ export default function ProfileScreen() {
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={styles.overline} testID="profile-title">PROFILE</Text>
 
-        {!authChecked && !authUser && !profile ? null : null}
-        {authChecked && !authUser && !profile ? (
+        {loading ? (
+          <View style={{ marginTop: SPACING.lg }}>
+            <SkeletonBox w={200} h={32} radius={6} style={{ marginBottom: SPACING.lg }} />
+            <View style={{ flexDirection: "row", gap: SPACING.sm, marginBottom: SPACING.lg }}>
+              <SkeletonBox w={undefined} h={64} radius={12} style={{ flex: 1 }} />
+              <SkeletonBox w={undefined} h={64} radius={12} style={{ flex: 1 }} />
+              <SkeletonBox w={undefined} h={64} radius={12} style={{ flex: 1 }} />
+            </View>
+            <SkeletonBox h={160} radius={12} style={{ marginBottom: SPACING.lg }} />
+            <SkeletonBox h={52} radius={12} style={{ marginBottom: SPACING.sm }} />
+          </View>
+        ) : null}
+
+        {!loading && (authChecked && !authUser && !profile ? (
           <View style={styles.emptyState} testID="profile-empty-state">
             <Ionicons name="person-circle-outline" size={64} color={COLORS.textSecondary} />
             <Text style={styles.emptyTitle}>SIGN IN TO VIEW{"\n"}YOUR PROFILE</Text>
@@ -130,7 +152,7 @@ export default function ProfileScreen() {
           <Text style={styles.logoutText}>{authUser ? "SIGN OUT" : "RESET PROFILE"}</Text>
         </TouchableOpacity>
           </>
-        )}
+        ))}
       </ScrollView>
     </SafeAreaView>
   );
